@@ -1,0 +1,12 @@
+{
+  "domain": "litellm_conversation",
+  "name": "LiteLLM Conversation",
+  "codeowners": ["@edgar971"],
+  "config_flow": true,
+  "dependencies": ["conversation", "ai_task"],
+  "documentation": "https://github.com/edgar971/ha-litellm-conversation",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "requirements": ["openai>=1.58.1"],
+  "version": "1.0.0"
+}

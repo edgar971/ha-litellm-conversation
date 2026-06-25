@@ -1,0 +1,86 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to LiteLLM Proxy",
+        "description": "Enter your LiteLLM proxy URL and API key.",
+        "data": {
+          "base_url": "Base URL",
+          "api_key": "API Key"
+        },
+        "data_description": {
+          "base_url": "The URL of your LiteLLM proxy (e.g. https://my-litellm-proxy.example.com)",
+          "api_key": "Your LiteLLM virtual API key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to the LiteLLM proxy. Check the URL and try again.",
+      "invalid_auth": "Invalid API key. Please check your LiteLLM virtual key.",
+      "unknown": "Unexpected error. Check the logs for more details."
+    },
+    "abort": {
+      "already_configured": "LiteLLM Conversation is already configured."
+    }
+  },
+  "config_subentries": {
+    "conversation": {
+      "initiate_flow": {
+        "user": "Add conversation agent"
+      },
+      "step": {
+        "user": {
+          "title": "Configure conversation agent",
+          "data": {
+            "chat_model": "Model",
+            "prompt": "System prompt",
+            "temperature": "Temperature",
+            "max_tokens": "Maximum tokens",
+            "top_p": "Top P",
+            "llm_hass_api": "Home Assistant LLM API"
+          },
+          "data_description": {
+            "prompt": "Instructions for the AI. Leave blank to use the default Home Assistant prompt.",
+            "llm_hass_api": "Select a Home Assistant LLM API to allow the agent to control your home."
+          }
+        }
+      },
+      "abort": {
+        "already_configured": "This conversation agent is already configured."
+      }
+    },
+    "ai_task_data": {
+      "initiate_flow": {
+        "user": "Add AI task provider"
+      },
+      "step": {
+        "user": {
+          "title": "Configure AI task provider",
+          "data": {
+            "chat_model": "Model",
+            "temperature": "Temperature",
+            "max_tokens": "Maximum tokens",
+            "top_p": "Top P"
+          }
+        }
+      },
+      "abort": {
+        "already_configured": "This AI task provider is already configured."
+      }
+    }
+  },
+  "exceptions": {
+    "authentication_error": {
+      "message": "Authentication failed. Check your LiteLLM API key."
+    },
+    "rate_limit_error": {
+      "message": "LiteLLM rate limit exceeded. Please try again later."
+    },
+    "connection_error": {
+      "message": "Unable to connect to the LiteLLM proxy."
+    },
+    "api_error": {
+      "message": "LiteLLM API returned status {status_code}."
+    }
+  }
+}

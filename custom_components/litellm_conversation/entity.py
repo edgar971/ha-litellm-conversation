@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncGenerator
 import json
 from typing import Any
 
 import openai
 from openai.types.responses import (
-    ParsedResponse,
-    ResponseFunctionToolCall,
     ResponseInputParam,
     ResponseOutputItem,
     ResponseStreamEvent,
@@ -22,10 +19,7 @@ import voluptuous as vol
 from homeassistant.components.conversation import (
     ChatLog,
     ConversationEntity,
-    ConversationInput,
-    ConversationResult,
     SystemContent,
-    ToolResultContent,
     UserContent,
 )
 from homeassistant.components.conversation.chat_log import (
@@ -33,12 +27,10 @@ from homeassistant.components.conversation.chat_log import (
     AssistantContentDeltaDict,
     Content,
     ToolCallContent,
-    ToolResultContent as ToolResultContentType,
+    ToolResultContent,
 )
-from homeassistant.config_entries import ConfigSubentry
-from homeassistant.core import HomeAssistant
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import llm
 
 from .const import (
     CONF_CHAT_MODEL,
@@ -49,7 +41,7 @@ from .const import (
     MAX_TOOL_ITERATIONS,
 )
 
-type LiteLLMConfigEntry = "ConfigEntry[openai.AsyncOpenAI]"
+type LiteLLMConfigEntry = ConfigEntry[openai.AsyncOpenAI]
 
 
 def _convert_content(
@@ -86,7 +78,7 @@ def _convert_content(
             "name": chat_content.tool_name,
             "arguments": json.dumps(chat_content.tool_args),
         }
-    if isinstance(chat_content, ToolResultContentType):
+    if isinstance(chat_content, ToolResultContent):
         return {
             "type": "function_call_output",
             "call_id": chat_content.tool_call_id,
@@ -166,17 +158,17 @@ class LiteLLMBaseLLMEntity(ConversationEntity):
         structure: vol.Schema | None = None,
     ) -> None:
         """Handle a chat log using the OpenAI Responses API."""
-        tools: list[dict[str, Any]] = [
-            {
-                "type": "function",
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": tool.parameters,
-            }
-            for tool in chat_log.llm_api.tools
-        ]
-        if chat_log.llm_api is None:
-            tools = []
+        tools: list[dict[str, Any]] = []
+        if chat_log.llm_api is not None:
+            tools = [
+                {
+                    "type": "function",
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters,
+                }
+                for tool in chat_log.llm_api.tools
+            ]
 
         model = self.subentry.data.get(CONF_CHAT_MODEL, "gpt-4o-mini")
         temperature = self.subentry.data.get(CONF_TEMPERATURE, 1.0)

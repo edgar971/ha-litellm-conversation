@@ -10,14 +10,12 @@ from homeassistant.components.conversation import (
     ConversationResult,
 )
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
+from homeassistant.const import CONF_LLM_HASS_API
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import CONF_PROMPT, DOMAIN
 from .entity import LiteLLMBaseLLMEntity
-
-import openai
-from homeassistant.const import CONF_LLM_HASS_API
 
 
 async def async_setup_entry(

@@ -89,7 +89,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                     await client.models.list()
             except openai.AuthenticationError:
                 errors["base"] = "invalid_auth"
-            except TimeoutError, openai.APIConnectionError:
+            except (TimeoutError, openai.APIConnectionError):
                 errors["base"] = "cannot_connect"
             except Exception:
                 errors["base"] = "unknown"

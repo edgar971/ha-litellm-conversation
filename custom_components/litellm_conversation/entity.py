@@ -9,15 +9,6 @@ import time
 from typing import TYPE_CHECKING, Any
 
 import openai
-from openai._streaming import AsyncStream
-from openai.types.responses import (
-    ResponseFunctionCallArgumentsDeltaEvent,
-    ResponseOutputItemAddedEvent,
-    ResponseOutputItemDoneEvent,
-    ResponseStreamEvent,
-    ResponseTextDeltaEvent,
-)
-from openai.types.responses.response_input_param import FunctionCallOutput
 import voluptuous as vol
 from voluptuous_openapi import convert
 
@@ -49,115 +40,117 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _format_tool(tool: llm.Tool) -> dict[str, Any]:
-    """Format tool specification."""
+    """Format tool specification for Chat Completions API."""
     schema = convert(tool.parameters)
     return {
         "type": "function",
-        "name": tool.name,
-        "description": tool.description,
-        "parameters": schema,
-        "strict": False,
+        "function": {
+            "name": tool.name,
+            "description": tool.description,
+            "parameters": schema,
+        },
     }
 
 
-def _convert_content_to_param(
+def _convert_content_to_messages(
     chat_content: list[conversation.Content],
 ) -> list[dict[str, Any]]:
-    """Convert entire chat log content to list of Responses API input params."""
+    """Convert chat log content to Chat Completions API messages."""
     messages: list[dict[str, Any]] = []
 
     for content in chat_content:
         if isinstance(content, conversation.ToolResultContent):
             messages.append(
-                FunctionCallOutput(
-                    type="function_call_output",
-                    call_id=content.tool_call_id,
-                    output=json_dumps(content.tool_result),
-                )
+                {
+                    "role": "tool",
+                    "tool_call_id": content.tool_call_id,
+                    "content": json_dumps(content.tool_result),
+                }
             )
             continue
 
-        if content.content:
-            role = content.role
-            if role == "system":
-                role = "developer"
+        if isinstance(content, conversation.AssistantContent):
+            msg: dict[str, Any] = {"role": "assistant"}
+            if content.content:
+                msg["content"] = content.content
+            if content.tool_calls:
+                msg["tool_calls"] = [
+                    {
+                        "id": tc.id,
+                        "type": "function",
+                        "function": {
+                            "name": tc.tool_name,
+                            "arguments": json.dumps(tc.tool_args),
+                        },
+                    }
+                    for tc in content.tool_calls
+                ]
+            messages.append(msg)
+        elif content.content:
             messages.append(
                 {
-                    "type": "message",
-                    "role": role,
+                    "role": content.role,
                     "content": content.content,
                 }
             )
-
-        if isinstance(content, conversation.AssistantContent) and content.tool_calls:
-            for tool_call in content.tool_calls:
-                messages.append(
-                    {
-                        "type": "function_call",
-                        "call_id": tool_call.id,
-                        "name": tool_call.tool_name,
-                        "arguments": json.dumps(tool_call.tool_args),
-                    }
-                )
 
     return messages
 
 
 async def _transform_stream(
-    chat_log: conversation.ChatLog,
-    result: AsyncStream[ResponseStreamEvent],
+    result: openai.AsyncStream,
 ) -> AsyncGenerator[conversation.AssistantContentDeltaDict]:
-    """Transform an OpenAI Responses API stream into HA chat log delta dicts."""
-    current_tool_call: dict[str, Any] | None = None
-    got_content = False
+    """Transform a Chat Completions stream into HA chat log delta dicts."""
+    current_tool_calls: dict[int, dict[str, Any]] = {}
 
-    async for event in result:
-        _LOGGER.debug(
-            "Stream event: type=%s class=%s", getattr(event, "type", "?"), type(event).__name__
-        )
-        if isinstance(event, ResponseTextDeltaEvent):
-            got_content = True
-            yield {"type": "text", "text": event.delta}
-        elif isinstance(event, ResponseOutputItemAddedEvent):
-            item = event.item
-            if item.type == "function_call":
-                current_tool_call = {
-                    "tool_call_id": item.call_id,
-                    "tool_name": item.name,
-                    "tool_args_json": "",
-                }
-        elif isinstance(event, ResponseFunctionCallArgumentsDeltaEvent):
-            if current_tool_call is not None:
-                current_tool_call["tool_args_json"] += event.delta
-        elif isinstance(event, ResponseOutputItemDoneEvent):
-            item = event.item
-            if item.type == "function_call" and current_tool_call is not None:
-                _LOGGER.debug(
-                    "Tool call completed: %s (call_id=%s)",
-                    current_tool_call["tool_name"],
-                    current_tool_call["tool_call_id"],
-                )
-                yield {
-                    "type": "tool_call",
-                    "tool_call_id": current_tool_call["tool_call_id"],
-                    "tool_name": current_tool_call["tool_name"],
-                    "tool_args": json.loads(current_tool_call["tool_args_json"]),
-                }
-                current_tool_call = None
-        else:
-            # Fallback: check event.type string for SDK version mismatches
-            event_type = getattr(event, "type", "")
-            if event_type == "response.output_text.delta":
-                delta = getattr(event, "delta", "")
-                if delta:
-                    got_content = True
-                    yield {"type": "text", "text": delta}
+    async for chunk in result:
+        choice = chunk.choices[0] if chunk.choices else None
+        if choice is None:
+            continue
 
-    if not got_content:
-        _LOGGER.warning(
-            "Stream completed with no text content yielded. "
-            "The model may not have returned a response."
-        )
+        delta = choice.delta
+        if delta is None:
+            continue
+
+        # Text content
+        if delta.content:
+            yield {"type": "text", "text": delta.content}
+
+        # Tool calls
+        if delta.tool_calls:
+            for tc_delta in delta.tool_calls:
+                idx = tc_delta.index
+                if idx not in current_tool_calls:
+                    current_tool_calls[idx] = {
+                        "tool_call_id": tc_delta.id or "",
+                        "tool_name": "",
+                        "tool_args_json": "",
+                    }
+                tc = current_tool_calls[idx]
+                if tc_delta.id:
+                    tc["tool_call_id"] = tc_delta.id
+                if tc_delta.function:
+                    if tc_delta.function.name:
+                        tc["tool_name"] = tc_delta.function.name
+                    if tc_delta.function.arguments:
+                        tc["tool_args_json"] += tc_delta.function.arguments
+
+        # When the stream signals stop, emit any accumulated tool calls
+        if choice.finish_reason == "tool_calls":
+            for tc in current_tool_calls.values():
+                if tc["tool_call_id"] and tc["tool_name"]:
+                    _LOGGER.debug(
+                        "Tool call completed: %s (call_id=%s)",
+                        tc["tool_name"],
+                        tc["tool_call_id"],
+                    )
+                    yield {
+                        "type": "tool_call",
+                        "tool_call_id": tc["tool_call_id"],
+                        "tool_name": tc["tool_name"],
+                        "tool_args": json.loads(tc["tool_args_json"] or "{}"),
+                    }
+            current_tool_calls.clear()
 
 
 class LiteLLMBaseLLMEntity(Entity):
@@ -189,8 +182,8 @@ class LiteLLMBaseLLMEntity(Entity):
         structure: vol.Schema | None = None,
         max_iterations: int = MAX_TOOL_ITERATIONS,
     ) -> None:
-        """Handle a chat log using the OpenAI Responses API."""
-        tools: list[dict[str, Any]] = []
+        """Handle a chat log using the Chat Completions API."""
+        tools: list[dict[str, Any]] | None = None
         if chat_log.llm_api is not None:
             tools = [_format_tool(tool) for tool in chat_log.llm_api.tools]
 
@@ -200,15 +193,16 @@ class LiteLLMBaseLLMEntity(Entity):
         max_tokens = self.subentry.data.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS)
         reasoning_effort = self.subentry.data.get(CONF_REASONING_EFFORT)
 
+        messages = _convert_content_to_messages(chat_log.content)
+
         create_params: dict[str, Any] = {
             "model": model,
-            "input": _convert_content_to_param(chat_log.content),
+            "messages": messages,
             "stream": True,
-            "max_output_tokens": max_tokens,
+            "max_tokens": max_tokens,
         }
 
         # Only send temperature OR top_p (not both) to avoid Bedrock errors.
-        # Prefer temperature; only send top_p if temperature is at default and top_p isn't.
         if temperature != RECOMMENDED_TEMPERATURE:
             create_params["temperature"] = temperature
         elif top_p != RECOMMENDED_TOP_P:
@@ -216,68 +210,63 @@ class LiteLLMBaseLLMEntity(Entity):
         else:
             create_params["temperature"] = temperature
 
-        if reasoning_effort and reasoning_effort != "none":
-            create_params["reasoning"] = {"effort": reasoning_effort}
-
         if tools:
             create_params["tools"] = tools
+            create_params["tool_choice"] = "auto"
 
         if structure is not None and structure_name is not None:
             output_schema = convert(structure)
-            create_params["text"] = {
-                "format": {
-                    "type": "json_schema",
+            create_params["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
                     "name": structure_name,
                     "schema": output_schema,
                     "strict": True,
-                }
+                },
             }
+
+        # Pass reasoning effort as extra header for models that support it
+        extra_headers: dict[str, str] = {}
+        if reasoning_effort and reasoning_effort != "none":
+            # LiteLLM passes this through for compatible models
+            extra_headers["x-litellm-reasoning-effort"] = reasoning_effort
 
         for _iteration in range(max_iterations):
             _LOGGER.debug(
                 "LiteLLM request: model=%s temperature=%s top_p=%s max_tokens=%s tools=%d",
                 model,
-                temperature,
-                top_p,
+                create_params.get("temperature", "unset"),
+                create_params.get("top_p", "unset"),
                 max_tokens,
-                len(tools),
+                len(tools) if tools else 0,
             )
             t0 = time.monotonic()
             try:
-                response = await self.client.responses.create(**create_params)
-            except openai.AuthenticationError as err:
-                _LOGGER.error(
-                    "Authentication error calling LiteLLM (model=%s): %s",
-                    model,
-                    err,
+                response = await self.client.chat.completions.create(
+                    **create_params,
+                    **({"extra_headers": extra_headers} if extra_headers else {}),
                 )
+            except openai.AuthenticationError as err:
+                _LOGGER.error("Authentication error (model=%s): %s", model, err)
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="authentication_error",
                 ) from err
             except openai.RateLimitError as err:
-                _LOGGER.error(
-                    "Rate limit error calling LiteLLM (model=%s): %s",
-                    model,
-                    err,
-                )
+                _LOGGER.error("Rate limit error (model=%s): %s", model, err)
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="rate_limit_error",
                 ) from err
             except openai.APIConnectionError as err:
-                _LOGGER.error(
-                    "Connection error calling LiteLLM (model=%s): %s",
-                    model,
-                    err,
-                )
+                _LOGGER.error("Connection error (model=%s): %s", model, err)
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="connection_error",
                 ) from err
             except openai.APIStatusError as err:
                 _LOGGER.error(
-                    "API status error calling LiteLLM (model=%s, status=%s): %s",
+                    "API status error (model=%s, status=%s): %s",
                     model,
                     err.status_code,
                     err,
@@ -289,13 +278,13 @@ class LiteLLMBaseLLMEntity(Entity):
                 ) from err
 
             async for _ in chat_log.async_add_delta_content_stream(
-                self.entity_id, _transform_stream(chat_log, response)
+                self.entity_id, _transform_stream(response)
             ):
                 pass
 
             latency_ms = (time.monotonic() - t0) * 1000
             _LOGGER.info(
-                "LiteLLM response received: model=%s latency=%.0fms iteration=%d",
+                "LiteLLM response: model=%s latency=%.0fms iteration=%d",
                 model,
                 latency_ms,
                 _iteration + 1,
@@ -306,7 +295,7 @@ class LiteLLMBaseLLMEntity(Entity):
                 chat_log.content[-1], conversation.AssistantContent
             ):
                 _LOGGER.error(
-                    "LiteLLM model returned no content (model=%s). Check proxy logs for errors.",
+                    "Model returned no content (model=%s). Check proxy logs.",
                     model,
                 )
                 raise HomeAssistantError(
@@ -316,5 +305,5 @@ class LiteLLMBaseLLMEntity(Entity):
             if not chat_log.unresponded_tool_results:
                 break
 
-            # Update input for next iteration with full conversation
-            create_params["input"] = _convert_content_to_param(chat_log.content)
+            # Update messages for next iteration
+            create_params["messages"] = _convert_content_to_messages(chat_log.content)

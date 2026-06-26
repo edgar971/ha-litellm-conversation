@@ -106,14 +106,17 @@ async def _transform_stream(
     async for chunk in result:
         choice = chunk.choices[0] if chunk.choices else None
         if choice is None:
+            _LOGGER.debug("Stream chunk with no choices: %s", chunk)
             continue
 
         delta = choice.delta
         if delta is None:
+            _LOGGER.debug("Stream chunk with no delta: finish_reason=%s", choice.finish_reason)
             continue
 
         # Text content
         if delta.content:
+            _LOGGER.debug("Stream text delta: %s", repr(delta.content[:80]))
             yield {"content": delta.content}
 
         # Tool calls
@@ -155,6 +158,10 @@ async def _transform_stream(
             if tool_inputs:
                 yield {"tool_calls": tool_inputs}
             current_tool_calls.clear()
+
+        # Log finish reason
+        if choice.finish_reason:
+            _LOGGER.debug("Stream finished: reason=%s", choice.finish_reason)
 
 
 class LiteLLMBaseLLMEntity(Entity):

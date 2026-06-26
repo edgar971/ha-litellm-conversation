@@ -109,9 +109,14 @@ async def _transform_stream(
 ) -> AsyncGenerator[conversation.AssistantContentDeltaDict]:
     """Transform an OpenAI Responses API stream into HA chat log delta dicts."""
     current_tool_call: dict[str, Any] | None = None
+    got_content = False
 
     async for event in result:
+        _LOGGER.debug(
+            "Stream event: type=%s class=%s", getattr(event, "type", "?"), type(event).__name__
+        )
         if isinstance(event, ResponseTextDeltaEvent):
+            got_content = True
             yield {"type": "text", "text": event.delta}
         elif isinstance(event, ResponseOutputItemAddedEvent):
             item = event.item
@@ -139,6 +144,20 @@ async def _transform_stream(
                     "tool_args": json.loads(current_tool_call["tool_args_json"]),
                 }
                 current_tool_call = None
+        else:
+            # Fallback: check event.type string for SDK version mismatches
+            event_type = getattr(event, "type", "")
+            if event_type == "response.output_text.delta":
+                delta = getattr(event, "delta", "")
+                if delta:
+                    got_content = True
+                    yield {"type": "text", "text": delta}
+
+    if not got_content:
+        _LOGGER.warning(
+            "Stream completed with no text content yielded. "
+            "The model may not have returned a response."
+        )
 
 
 class LiteLLMBaseLLMEntity(Entity):

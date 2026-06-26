@@ -31,6 +31,7 @@ from homeassistant.helpers.json import json_dumps
 from .const import (
     CONF_CHAT_MODEL,
     CONF_MAX_TOKENS,
+    CONF_REASONING_EFFORT,
     CONF_TEMPERATURE,
     CONF_TOP_P,
     DOMAIN,
@@ -178,6 +179,7 @@ class LiteLLMBaseLLMEntity(Entity):
         temperature = self.subentry.data.get(CONF_TEMPERATURE, RECOMMENDED_TEMPERATURE)
         top_p = self.subentry.data.get(CONF_TOP_P, RECOMMENDED_TOP_P)
         max_tokens = self.subentry.data.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS)
+        reasoning_effort = self.subentry.data.get(CONF_REASONING_EFFORT)
 
         create_params: dict[str, Any] = {
             "model": model,
@@ -187,6 +189,9 @@ class LiteLLMBaseLLMEntity(Entity):
             "top_p": top_p,
             "max_output_tokens": max_tokens,
         }
+
+        if reasoning_effort and reasoning_effort != "none":
+            create_params["reasoning"] = {"effort": reasoning_effort}
 
         if tools:
             create_params["tools"] = tools

@@ -44,6 +44,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> b
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+
     LOGGER.info(
         "LiteLLM Conversation integration loaded successfully (entry_id=%s, base_url=%s)",
         entry.entry_id,
@@ -51,6 +53,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> b
     )
 
     return True
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> None:
+    """Handle options update — reload the entry."""
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> bool:

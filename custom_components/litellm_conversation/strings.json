@@ -12,6 +12,18 @@
           "base_url": "The URL of your LiteLLM proxy (e.g. https://my-litellm-proxy.example.com)",
           "api_key": "Your LiteLLM virtual API key"
         }
+      },
+      "reconfigure": {
+        "title": "Reconfigure LiteLLM Proxy",
+        "description": "Update your LiteLLM proxy URL and API key.",
+        "data": {
+          "base_url": "Base URL",
+          "api_key": "API Key"
+        },
+        "data_description": {
+          "base_url": "The URL of your LiteLLM proxy (e.g. https://my-litellm-proxy.example.com)",
+          "api_key": "Your LiteLLM virtual API key"
+        }
       }
     },
     "error": {
@@ -20,7 +32,8 @@
       "unknown": "Unexpected error. Check the logs for more details."
     },
     "abort": {
-      "already_configured": "LiteLLM Conversation is already configured."
+      "already_configured": "LiteLLM Conversation is already configured.",
+      "reconfigure_successful": "Re-configuration was successful."
     }
   },
   "config_subentries": {
@@ -37,16 +50,36 @@
             "temperature": "Temperature",
             "max_tokens": "Maximum tokens",
             "top_p": "Top P",
+            "reasoning_effort": "Reasoning effort",
             "llm_hass_api": "Home Assistant LLM API"
           },
           "data_description": {
             "prompt": "Instructions for the AI. Leave blank to use the default Home Assistant prompt.",
+            "reasoning_effort": "Reasoning effort for o-series models. Set to 'None' for standard models.",
+            "llm_hass_api": "Select a Home Assistant LLM API to allow the agent to control your home."
+          }
+        },
+        "reconfigure": {
+          "title": "Reconfigure conversation agent",
+          "data": {
+            "chat_model": "Model",
+            "prompt": "System prompt",
+            "temperature": "Temperature",
+            "max_tokens": "Maximum tokens",
+            "top_p": "Top P",
+            "reasoning_effort": "Reasoning effort",
+            "llm_hass_api": "Home Assistant LLM API"
+          },
+          "data_description": {
+            "prompt": "Instructions for the AI. Leave blank to use the default Home Assistant prompt.",
+            "reasoning_effort": "Reasoning effort for o-series models. Set to 'None' for standard models.",
             "llm_hass_api": "Select a Home Assistant LLM API to allow the agent to control your home."
           }
         }
       },
       "abort": {
-        "already_configured": "This conversation agent is already configured."
+        "already_configured": "This conversation agent is already configured.",
+        "reconfigure_successful": "Re-configuration was successful."
       }
     },
     "ai_task_data": {
@@ -62,10 +95,20 @@
             "max_tokens": "Maximum tokens",
             "top_p": "Top P"
           }
+        },
+        "reconfigure": {
+          "title": "Reconfigure AI task provider",
+          "data": {
+            "chat_model": "Model",
+            "temperature": "Temperature",
+            "max_tokens": "Maximum tokens",
+            "top_p": "Top P"
+          }
         }
       },
       "abort": {
-        "already_configured": "This AI task provider is already configured."
+        "already_configured": "This AI task provider is already configured.",
+        "reconfigure_successful": "Re-configuration was successful."
       }
     }
   },

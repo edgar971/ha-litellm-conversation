@@ -330,7 +330,7 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
         """Handle reconfiguration of an existing conversation subentry."""
-        subentry = self._get_subentry()
+        subentry = self._get_reconfigure_subentry()
         current = dict(subentry.data)
 
         if user_input is not None:
@@ -343,7 +343,7 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
                 data.pop(CONF_REASONING_EFFORT, None)
             return self.async_update_and_abort(
                 self._get_entry(),
-                self._get_subentry(),
+                self._get_reconfigure_subentry(),
                 title=data.get(CONF_CHAT_MODEL, subentry.title),
                 data=data,
             )
@@ -462,13 +462,13 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
         """Handle reconfiguration of an existing AI task subentry."""
-        subentry = self._get_subentry()
+        subentry = self._get_reconfigure_subentry()
         current = dict(subentry.data)
 
         if user_input is not None:
             return self.async_update_and_abort(
                 self._get_entry(),
-                self._get_subentry(),
+                self._get_reconfigure_subentry(),
                 title=user_input.get(CONF_CHAT_MODEL, subentry.title),
                 data=user_input,
             )

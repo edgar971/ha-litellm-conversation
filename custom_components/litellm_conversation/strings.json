@@ -24,6 +24,13 @@
           "base_url": "The URL of your LiteLLM proxy (e.g. https://my-litellm-proxy.example.com)",
           "api_key": "Your LiteLLM virtual API key"
         }
+      },
+      "models": {
+        "title": "Select Model",
+        "description": "Found {model_count} models on your LiteLLM proxy. Select a default model for conversation and AI tasks.",
+        "data": {
+          "chat_model": "Model"
+        }
       }
     },
     "error": {

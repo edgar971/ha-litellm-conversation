@@ -185,10 +185,17 @@ class LiteLLMBaseLLMEntity(Entity):
             "model": model,
             "input": _convert_content_to_param(chat_log.content),
             "stream": True,
-            "temperature": temperature,
-            "top_p": top_p,
             "max_output_tokens": max_tokens,
         }
+
+        # Only send temperature OR top_p (not both) to avoid Bedrock errors.
+        # Prefer temperature; only send top_p if temperature is at default and top_p isn't.
+        if temperature != RECOMMENDED_TEMPERATURE:
+            create_params["temperature"] = temperature
+        elif top_p != RECOMMENDED_TOP_P:
+            create_params["top_p"] = top_p
+        else:
+            create_params["temperature"] = temperature
 
         if reasoning_effort and reasoning_effort != "none":
             create_params["reasoning"] = {"effort": reasoning_effort}

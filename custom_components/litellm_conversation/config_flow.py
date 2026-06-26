@@ -92,8 +92,14 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
+    def __init__(self) -> None:
+        """Initialize the config flow."""
+        self._base_url: str = ""
+        self._api_key: str = ""
+        self._models: list[str] = []
+
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        """Handle the initial step."""
+        """Handle the initial step — URL and API key."""
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -102,22 +108,10 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
 
             errors = await _validate_connection(self.hass, base_url, api_key)
             if not errors:
-                return self.async_create_entry(
-                    title=base_url,
-                    data={CONF_BASE_URL: base_url, CONF_API_KEY: api_key},
-                    subentries=[
-                        {
-                            "subentry_type": "conversation",
-                            "title": "LiteLLM Conversation",
-                            "data": {},
-                        },
-                        {
-                            "subentry_type": "ai_task_data",
-                            "title": "LiteLLM AI Tasks",
-                            "data": {},
-                        },
-                    ],
-                )
+                self._base_url = base_url
+                self._api_key = api_key
+                self._models = await _get_models(self.hass, base_url, api_key)
+                return await self.async_step_models()
 
         return self.async_show_form(
             step_id="user",
@@ -128,6 +122,49 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+        )
+
+    async def async_step_models(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Handle model selection step."""
+        if user_input is not None:
+            chat_model = user_input.get(
+                CONF_CHAT_MODEL, self._models[0] if self._models else DEFAULT_CHAT_MODEL
+            )
+            return self.async_create_entry(
+                title=self._base_url,
+                data={CONF_BASE_URL: self._base_url, CONF_API_KEY: self._api_key},
+                subentries=[
+                    {
+                        "subentry_type": "conversation",
+                        "title": "LiteLLM Conversation",
+                        "data": {CONF_CHAT_MODEL: chat_model},
+                    },
+                    {
+                        "subentry_type": "ai_task_data",
+                        "title": "LiteLLM AI Tasks",
+                        "data": {CONF_CHAT_MODEL: chat_model},
+                    },
+                ],
+            )
+
+        models = self._models
+        return self.async_show_form(
+            step_id="models",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CHAT_MODEL,
+                        default=models[0] if models else DEFAULT_CHAT_MODEL,
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[SelectOptionDict(value=m, label=m) for m in models],
+                            custom_value=True,
+                            mode=SelectSelectorMode.DROPDOWN,
+                        )
+                    ),
+                }
+            ),
+            description_placeholders={"model_count": str(len(models))},
         )
 
     async def async_step_reconfigure(

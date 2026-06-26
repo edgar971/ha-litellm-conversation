@@ -282,6 +282,18 @@ class LiteLLMBaseLLMEntity(Entity):
                 _iteration + 1,
             )
 
+            # Verify we got a response
+            if not chat_log.content or not isinstance(
+                chat_log.content[-1], conversation.AssistantContent
+            ):
+                _LOGGER.error(
+                    "LiteLLM model returned no content (model=%s). Check proxy logs for errors.",
+                    model,
+                )
+                raise HomeAssistantError(
+                    f"LiteLLM model '{model}' returned no response. Check your LiteLLM proxy logs."
+                )
+
             if not chat_log.unresponded_tool_results:
                 break
 

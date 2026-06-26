@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 import json
+import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 import openai
@@ -44,6 +46,8 @@ from .const import (
 
 if TYPE_CHECKING:
     from . import LiteLLMConfigEntry
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _format_tool(tool: llm.Tool) -> dict[str, Any]:
@@ -126,6 +130,11 @@ async def _transform_stream(
         elif isinstance(event, ResponseOutputItemDoneEvent):
             item = event.item
             if item.type == "function_call" and current_tool_call is not None:
+                _LOGGER.debug(
+                    "Tool call completed: %s (call_id=%s)",
+                    current_tool_call["tool_name"],
+                    current_tool_call["tool_call_id"],
+                )
                 yield {
                     "type": "tool_call",
                     "tool_call_id": current_tool_call["tool_call_id"],
@@ -198,24 +207,54 @@ class LiteLLMBaseLLMEntity(Entity):
             }
 
         for _iteration in range(max_iterations):
+            _LOGGER.debug(
+                "LiteLLM request: model=%s temperature=%s top_p=%s max_tokens=%s tools=%d",
+                model,
+                temperature,
+                top_p,
+                max_tokens,
+                len(tools),
+            )
+            t0 = time.monotonic()
             try:
                 response = await self.client.responses.create(**create_params)
             except openai.AuthenticationError as err:
+                _LOGGER.error(
+                    "Authentication error calling LiteLLM (model=%s): %s",
+                    model,
+                    err,
+                )
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="authentication_error",
                 ) from err
             except openai.RateLimitError as err:
+                _LOGGER.error(
+                    "Rate limit error calling LiteLLM (model=%s): %s",
+                    model,
+                    err,
+                )
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="rate_limit_error",
                 ) from err
             except openai.APIConnectionError as err:
+                _LOGGER.error(
+                    "Connection error calling LiteLLM (model=%s): %s",
+                    model,
+                    err,
+                )
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="connection_error",
                 ) from err
             except openai.APIStatusError as err:
+                _LOGGER.error(
+                    "API status error calling LiteLLM (model=%s, status=%s): %s",
+                    model,
+                    err.status_code,
+                    err,
+                )
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="api_error",
@@ -226,6 +265,14 @@ class LiteLLMBaseLLMEntity(Entity):
                 self.entity_id, _transform_stream(chat_log, response)
             ):
                 pass
+
+            latency_ms = (time.monotonic() - t0) * 1000
+            _LOGGER.info(
+                "LiteLLM response received: model=%s latency=%.0fms iteration=%d",
+                model,
+                latency_ms,
+                _iteration + 1,
+            )
 
             if not chat_log.unresponded_tool_results:
                 break

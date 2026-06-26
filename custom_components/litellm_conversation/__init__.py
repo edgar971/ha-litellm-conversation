@@ -9,7 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.httpx_client import get_async_client
 
-from .const import CONF_BASE_URL, DOMAIN
+from .const import CONF_BASE_URL, DOMAIN, LOGGER
 
 PLATFORMS = (Platform.CONVERSATION, Platform.AI_TASK)
 
@@ -41,6 +41,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> b
     entry.runtime_data = client
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    LOGGER.info(
+        "LiteLLM Conversation integration loaded successfully (entry_id=%s, base_url=%s)",
+        entry.entry_id,
+        base_url,
+    )
 
     return True
 

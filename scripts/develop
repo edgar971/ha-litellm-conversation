@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# scripts/develop — local HA development setup
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+CONFIG_DIR="${REPO_ROOT}/config"
+CUSTOM_COMPONENTS_DIR="${REPO_ROOT}/custom_components"
+
+echo "🔧 Setting up local development environment..."
+
+# Create config directory structure
+mkdir -p "${CONFIG_DIR}"
+
+# Write minimal configuration.yaml if it doesn't exist
+if [[ ! -f "${CONFIG_DIR}/configuration.yaml" ]]; then
+  cat > "${CONFIG_DIR}/configuration.yaml" <<EOF
+# Minimal HA config for local development
+default_config:
+
+# Load custom_components from the repo root
+homeassistant:
+  customize: {}
+EOF
+  echo "✅ Created ${CONFIG_DIR}/configuration.yaml"
+else
+  echo "ℹ️  ${CONFIG_DIR}/configuration.yaml already exists, skipping."
+fi
+
+# Symlink custom_components into the config dir so HA picks them up
+LINK_TARGET="${CONFIG_DIR}/custom_components"
+if [[ ! -e "${LINK_TARGET}" ]]; then
+  ln -s "${CUSTOM_COMPONENTS_DIR}" "${LINK_TARGET}"
+  echo "✅ Linked custom_components → ${LINK_TARGET}"
+else
+  echo "ℹ️  ${LINK_TARGET} already exists, skipping symlink."
+fi
+
+echo ""
+echo "🚀 Run Home Assistant with:"
+echo "   hass -c ${CONFIG_DIR}"
+echo ""
+echo "📖 Tip: set PYTHONPATH or install the integration in editable mode first:"
+echo "   pip install -e '.[dev]'"

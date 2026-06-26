@@ -1,6 +1,10 @@
 """Constants for the LiteLLM Conversation integration."""
 
+import logging
+
 DOMAIN = "litellm_conversation"
+
+LOGGER = logging.getLogger(__package__)
 
 CONF_BASE_URL = "base_url"
 CONF_PROMPT = "prompt"

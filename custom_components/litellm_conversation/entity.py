@@ -114,7 +114,7 @@ async def _transform_stream(
 
         # Text content
         if delta.content:
-            yield {"type": "text", "text": delta.content}
+            yield {"content": delta.content}
 
         # Tool calls
         if delta.tool_calls:
@@ -137,6 +137,7 @@ async def _transform_stream(
 
         # When the stream signals stop, emit any accumulated tool calls
         if choice.finish_reason == "tool_calls":
+            tool_inputs = []
             for tc in current_tool_calls.values():
                 if tc["tool_call_id"] and tc["tool_name"]:
                     _LOGGER.debug(
@@ -144,12 +145,15 @@ async def _transform_stream(
                         tc["tool_name"],
                         tc["tool_call_id"],
                     )
-                    yield {
-                        "type": "tool_call",
-                        "tool_call_id": tc["tool_call_id"],
-                        "tool_name": tc["tool_name"],
-                        "tool_args": json.loads(tc["tool_args_json"] or "{}"),
-                    }
+                    tool_inputs.append(
+                        llm.ToolInput(
+                            id=tc["tool_call_id"],
+                            tool_name=tc["tool_name"],
+                            tool_args=json.loads(tc["tool_args_json"] or "{}"),
+                        )
+                    )
+            if tool_inputs:
+                yield {"tool_calls": tool_inputs}
             current_tool_calls.clear()
 
 

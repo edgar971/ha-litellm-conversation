@@ -231,7 +231,6 @@ class LiteLLMBaseLLMEntity(Entity):
                 "json_schema": {
                     "name": structure_name,
                     "schema": output_schema,
-                    "strict": True,
                 },
             }
 

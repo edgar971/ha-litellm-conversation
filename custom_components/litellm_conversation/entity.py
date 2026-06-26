@@ -226,6 +226,7 @@ class LiteLLMBaseLLMEntity(Entity):
 
         if structure is not None and structure_name is not None:
             output_schema = convert(structure)
+            # Omit `strict` — not supported by Bedrock and many non-OpenAI providers.
             create_params["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
@@ -234,11 +235,12 @@ class LiteLLMBaseLLMEntity(Entity):
                 },
             }
 
-        # Pass reasoning effort as extra header for models that support it
         extra_headers: dict[str, str] = {}
         if reasoning_effort and reasoning_effort != "none":
-            # LiteLLM passes this through for compatible models
             extra_headers["x-litellm-reasoning-effort"] = reasoning_effort
+
+        # Ask the proxy to silently drop any params unsupported by the target provider.
+        extra_body: dict[str, Any] = {"drop_params": True}
 
         for _iteration in range(max_iterations):
             _LOGGER.debug(
@@ -254,6 +256,7 @@ class LiteLLMBaseLLMEntity(Entity):
                 response = await self.client.chat.completions.create(
                     **create_params,
                     **({"extra_headers": extra_headers} if extra_headers else {}),
+                    extra_body=extra_body,
                 )
             except openai.AuthenticationError as err:
                 _LOGGER.error("Authentication error (model=%s): %s", model, err)

@@ -223,7 +223,6 @@ class LiteLLMBaseLLMEntity(Entity):
 
         if tools:
             create_params["tools"] = tools
-            create_params["tool_choice"] = "auto"
 
         if structure is not None and structure_name is not None:
             output_schema = convert(structure)

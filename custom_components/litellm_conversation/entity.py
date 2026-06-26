@@ -4,33 +4,30 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import openai
+from openai._streaming import AsyncStream
 from openai.types.responses import (
-    ResponseInputParam,
-    ResponseOutputItem,
+    ResponseFunctionCallArgumentsDeltaEvent,
+    ResponseOutputItemAddedEvent,
+    ResponseOutputItemDoneEvent,
     ResponseStreamEvent,
     ResponseTextDeltaEvent,
 )
-from openai.types.responses.response_create_params import ResponseCreateParamsStreaming
+from openai.types.responses.response_create_params import (
+    ResponseCreateParamsStreaming,
+)
+from openai.types.responses.response_input_param import FunctionCallOutput
 import voluptuous as vol
+from voluptuous_openapi import convert
 
-from homeassistant.components.conversation import (
-    ChatLog,
-    ConversationEntity,
-    SystemContent,
-    UserContent,
-)
-from homeassistant.components.conversation.chat_log import (
-    AssistantContent,
-    AssistantContentDeltaDict,
-    Content,
-    ToolCallContent,
-    ToolResultContent,
-)
-from homeassistant.config_entries import ConfigEntry, ConfigSubentry
+from homeassistant.components import conversation
+from homeassistant.config_entries import ConfigSubentry
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.entity import Entity
+from homeassistant.helpers import llm
+from homeassistant.helpers.json import json_dumps
 
 from .const import (
     CONF_CHAT_MODEL,
@@ -39,85 +36,94 @@ from .const import (
     CONF_TOP_P,
     DOMAIN,
     MAX_TOOL_ITERATIONS,
+    RECOMMENDED_CHAT_MODEL,
+    RECOMMENDED_MAX_TOKENS,
+    RECOMMENDED_TEMPERATURE,
+    RECOMMENDED_TOP_P,
 )
 
-type LiteLLMConfigEntry = ConfigEntry[openai.AsyncOpenAI]
+if TYPE_CHECKING:
+    from . import LiteLLMConfigEntry
 
 
-def _convert_content(
-    chat_content: Content,
-) -> ResponseInputParam:
-    """Convert HA chat log content to OpenAI Responses API input param."""
-    if isinstance(chat_content, SystemContent):
-        return {
-            "role": "system",
-            "content": chat_content.content,
-        }
-    if isinstance(chat_content, UserContent):
-        parts: list[Any] = []
-        for part in chat_content.content:
-            if hasattr(part, "text"):
-                parts.append({"type": "input_text", "text": part.text})
-            elif hasattr(part, "media_type"):
-                parts.append(
-                    {
-                        "type": "input_image",
-                        "image_url": f"data:{part.media_type};base64,{part.data}",
-                    }
-                )
-        return {"role": "user", "content": parts}
-    if isinstance(chat_content, AssistantContent):
-        return {
-            "role": "assistant",
-            "content": chat_content.content,
-        }
-    if isinstance(chat_content, ToolCallContent):
-        return {
-            "type": "function_call",
-            "call_id": chat_content.tool_call_id,
-            "name": chat_content.tool_name,
-            "arguments": json.dumps(chat_content.tool_args),
-        }
-    if isinstance(chat_content, ToolResultContent):
-        return {
-            "type": "function_call_output",
-            "call_id": chat_content.tool_call_id,
-            "output": chat_content.tool_result
-            if isinstance(chat_content.tool_result, str)
-            else json.dumps(chat_content.tool_result),
-        }
-    raise ValueError(f"Unexpected content type: {type(chat_content)}")
+def _format_tool(tool: llm.Tool) -> dict[str, Any]:
+    """Format tool specification."""
+    schema = convert(tool.parameters)
+    return {
+        "type": "function",
+        "name": tool.name,
+        "description": tool.description,
+        "parameters": schema,
+        "strict": False,
+    }
 
 
 def _convert_content_to_param(
-    chat_log: ChatLog,
-) -> list[ResponseInputParam]:
-    """Convert entire chat log to list of Responses API input params."""
-    return [_convert_content(c) for c in chat_log.content]
+    chat_content: list[conversation.Content],
+) -> list[dict[str, Any]]:
+    """Convert entire chat log content to list of Responses API input params."""
+    messages: list[dict[str, Any]] = []
+
+    for content in chat_content:
+        if isinstance(content, conversation.ToolResultContent):
+            messages.append(
+                FunctionCallOutput(
+                    type="function_call_output",
+                    call_id=content.tool_call_id,
+                    output=json_dumps(content.tool_result),
+                )
+            )
+            continue
+
+        if content.content:
+            role = content.role
+            if role == "system":
+                role = "developer"
+            messages.append(
+                {
+                    "type": "message",
+                    "role": role,
+                    "content": content.content,
+                }
+            )
+
+        if isinstance(content, conversation.AssistantContent):
+            if content.tool_calls:
+                for tool_call in content.tool_calls:
+                    messages.append(
+                        {
+                            "type": "function_call",
+                            "call_id": tool_call.id,
+                            "name": tool_call.tool_name,
+                            "arguments": json.dumps(tool_call.tool_args),
+                        }
+                    )
+
+    return messages
 
 
 async def _transform_stream(
-    chat_log: ChatLog,
-    result: openai.AsyncStream[ResponseStreamEvent],
-) -> AsyncGenerator[AssistantContentDeltaDict]:
+    chat_log: conversation.ChatLog,
+    result: AsyncStream[ResponseStreamEvent],
+) -> AsyncGenerator[conversation.AssistantContentDeltaDict]:
     """Transform an OpenAI Responses API stream into HA chat log delta dicts."""
     current_tool_call: dict[str, Any] | None = None
 
     async for event in result:
         if isinstance(event, ResponseTextDeltaEvent):
             yield {"type": "text", "text": event.delta}
-        elif event.type == "response.output_item.added":
-            item: ResponseOutputItem = event.item
+        elif isinstance(event, ResponseOutputItemAddedEvent):
+            item = event.item
             if item.type == "function_call":
                 current_tool_call = {
                     "tool_call_id": item.call_id,
                     "tool_name": item.name,
                     "tool_args_json": "",
                 }
-        elif event.type == "response.function_call_arguments.delta":
+        elif isinstance(event, ResponseFunctionCallArgumentsDeltaEvent):
             if current_tool_call is not None:
                 current_tool_call["tool_args_json"] += event.delta
-        elif event.type == "response.output_item.done":
+        elif isinstance(event, ResponseOutputItemDoneEvent):
             item = event.item
             if item.type == "function_call" and current_tool_call is not None:
                 yield {
@@ -129,10 +135,11 @@ async def _transform_stream(
                 current_tool_call = None
 
 
-class LiteLLMBaseLLMEntity(ConversationEntity):
+class LiteLLMBaseLLMEntity(Entity):
     """Base class for LiteLLM LLM entities."""
 
     _attr_has_entity_name = True
+    _attr_should_poll = False
 
     def __init__(
         self,
@@ -144,7 +151,6 @@ class LiteLLMBaseLLMEntity(ConversationEntity):
         self.subentry = subentry
         self._attr_unique_id = subentry.subentry_id
         self._attr_name = subentry.title
-        self._attr_device_info = None
 
     @property
     def client(self) -> openai.AsyncOpenAI:
@@ -153,31 +159,24 @@ class LiteLLMBaseLLMEntity(ConversationEntity):
 
     async def _async_handle_chat_log(
         self,
-        chat_log: ChatLog,
+        chat_log: conversation.ChatLog,
         structure_name: str | None = None,
         structure: vol.Schema | None = None,
+        max_iterations: int = MAX_TOOL_ITERATIONS,
     ) -> None:
         """Handle a chat log using the OpenAI Responses API."""
         tools: list[dict[str, Any]] = []
         if chat_log.llm_api is not None:
-            tools = [
-                {
-                    "type": "function",
-                    "name": tool.name,
-                    "description": tool.description,
-                    "parameters": tool.parameters,
-                }
-                for tool in chat_log.llm_api.tools
-            ]
+            tools = [_format_tool(tool) for tool in chat_log.llm_api.tools]
 
-        model = self.subentry.data.get(CONF_CHAT_MODEL, "gpt-4o-mini")
-        temperature = self.subentry.data.get(CONF_TEMPERATURE, 1.0)
-        top_p = self.subentry.data.get(CONF_TOP_P, 1.0)
-        max_tokens = self.subentry.data.get(CONF_MAX_TOKENS, 4096)
+        model = self.subentry.data.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL)
+        temperature = self.subentry.data.get(CONF_TEMPERATURE, RECOMMENDED_TEMPERATURE)
+        top_p = self.subentry.data.get(CONF_TOP_P, RECOMMENDED_TOP_P)
+        max_tokens = self.subentry.data.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS)
 
-        create_params: ResponseCreateParamsStreaming = {
+        create_params: dict[str, Any] = {
             "model": model,
-            "input": _convert_content_to_param(chat_log),
+            "input": _convert_content_to_param(chat_log.content),
             "stream": True,
             "temperature": temperature,
             "top_p": top_p,
@@ -185,19 +184,20 @@ class LiteLLMBaseLLMEntity(ConversationEntity):
         }
 
         if tools:
-            create_params["tools"] = tools  # type: ignore[typeddict-item]
+            create_params["tools"] = tools
 
         if structure is not None and structure_name is not None:
+            output_schema = convert(structure)
             create_params["text"] = {
                 "format": {
                     "type": "json_schema",
                     "name": structure_name,
-                    "schema": structure,
+                    "schema": output_schema,
                     "strict": True,
                 }
             }
 
-        for _iteration in range(MAX_TOOL_ITERATIONS):
+        for _iteration in range(max_iterations):
             try:
                 response = await self.client.responses.create(**create_params)
             except openai.AuthenticationError as err:
@@ -231,4 +231,4 @@ class LiteLLMBaseLLMEntity(ConversationEntity):
                 break
 
             # Update input for next iteration with full conversation
-            create_params["input"] = _convert_content_to_param(chat_log)
+            create_params["input"] = _convert_content_to_param(chat_log.content)

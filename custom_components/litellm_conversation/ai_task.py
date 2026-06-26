@@ -2,24 +2,23 @@
 
 from __future__ import annotations
 
-import voluptuous as vol
+from json import JSONDecodeError
+from typing import override
 
-from homeassistant.components.ai_task import (
-    AITaskEntity,
-    AITaskEntityFeature,
-    GenerateDataTask,
-)
-from homeassistant.components.conversation import ChatLog
-from homeassistant.config_entries import ConfigEntry, ConfigSubentry
+from homeassistant.components import ai_task, conversation
+from homeassistant.config_entries import ConfigSubentry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util.json import json_loads
 
+from . import LiteLLMConfigEntry
 from .entity import LiteLLMBaseLLMEntity
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: LiteLLMConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up AI Task entities from a config entry."""
@@ -27,23 +26,60 @@ async def async_setup_entry(
         if subentry.subentry_type != "ai_task_data":
             continue
         async_add_entities(
-            [LiteLLMAITaskEntity(config_entry, subentry)]
+            [LiteLLMAITaskEntity(config_entry, subentry)],
+            config_subentry_id=subentry.subentry_id,
         )
 
 
-class LiteLLMAITaskEntity(LiteLLMBaseLLMEntity, AITaskEntity):
+class LiteLLMAITaskEntity(
+    ai_task.AITaskEntity,
+    LiteLLMBaseLLMEntity,
+):
     """LiteLLM AI Task entity."""
 
-    _attr_supported_features = AITaskEntityFeature.GENERATE_DATA
+    _attr_supported_features = ai_task.AITaskEntityFeature.GENERATE_DATA
 
+    def __init__(
+        self, entry: LiteLLMConfigEntry, subentry: ConfigSubentry
+    ) -> None:
+        """Initialize the entity."""
+        super().__init__(entry, subentry)
+
+    @override
     async def _async_generate_data(
         self,
-        task: GenerateDataTask,
-        chat_log: ChatLog,
-    ) -> None:
-        """Generate data for an AI task."""
+        task: ai_task.GenDataTask,
+        chat_log: conversation.ChatLog,
+    ) -> ai_task.GenDataTaskResult:
+        """Handle a generate data task."""
         await self._async_handle_chat_log(
             chat_log,
-            structure_name=task.structure_name,
+            structure_name=task.name,
             structure=task.structure,
+            max_iterations=1000,
+        )
+
+        if not isinstance(chat_log.content[-1], conversation.AssistantContent):
+            raise HomeAssistantError(
+                "Last content in chat log is not an AssistantContent"
+            )
+
+        text = chat_log.content[-1].content or ""
+
+        if not task.structure:
+            return ai_task.GenDataTaskResult(
+                conversation_id=chat_log.conversation_id,
+                data=text,
+            )
+
+        try:
+            data = json_loads(text)
+        except JSONDecodeError as err:
+            raise HomeAssistantError(
+                "Error with LiteLLM structured response"
+            ) from err
+
+        return ai_task.GenDataTaskResult(
+            conversation_id=chat_log.conversation_id,
+            data=data,
         )

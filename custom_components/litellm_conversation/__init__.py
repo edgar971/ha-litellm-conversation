@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import openai
+
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.httpx_client import get_async_client
 
-from .const import CONF_BASE_URL, DOMAIN, LOGGER
+from .const import CONF_BASE_URL, LOGGER
+from .const import DOMAIN as DOMAIN
 
 PLATFORMS = (Platform.CONVERSATION, Platform.AI_TASK)
 

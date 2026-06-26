@@ -1,6 +1,6 @@
 # ruff configuration — matches Home Assistant code style
 line-length = 100
-target-version = "py314"
+target-version = "py313"
 
 [lint]
 select = [

@@ -67,9 +67,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> ConfigFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         """Handle the initial step."""
         errors: dict[str, str] = {}
 
@@ -91,7 +89,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                     await client.models.list()
             except openai.AuthenticationError:
                 errors["base"] = "invalid_auth"
-            except (openai.APIConnectionError, asyncio.TimeoutError):
+            except TimeoutError, openai.APIConnectionError:
                 errors["base"] = "cannot_connect"
             except Exception:
                 errors["base"] = "unknown"
@@ -138,9 +136,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
 class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
     """Conversation subentry flow."""
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
         """Handle subentry configuration."""
         if user_input is not None:
             # Remove llm_hass_api key if empty so it's omitted rather than None
@@ -153,22 +149,21 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
             )
 
         entry = self._get_entry()
-        models = await _get_models(
-            self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY]
-        )
+        models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
 
         llm_apis = [
             SelectOptionDict(value="", label="No control"),
         ] + [
-            SelectOptionDict(value=api.id, label=api.name)
-            for api in llm.async_get_apis(self.hass)
+            SelectOptionDict(value=api.id, label=api.name) for api in llm.async_get_apis(self.hass)
         ]
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(CONF_CHAT_MODEL, default=models[0] if models else DEFAULT_CHAT_MODEL): SelectSelector(
+                    vol.Optional(
+                        CONF_CHAT_MODEL, default=models[0] if models else DEFAULT_CHAT_MODEL
+                    ): SelectSelector(
                         SelectSelectorConfig(
                             options=[SelectOptionDict(value=m, label=m) for m in models],
                             mode=SelectSelectorMode.DROPDOWN,
@@ -176,13 +171,17 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
                     ),
                     vol.Optional(CONF_PROMPT): TemplateSelector(),
                     vol.Optional(CONF_TEMPERATURE, default=DEFAULT_TEMPERATURE): NumberSelector(
-                        NumberSelectorConfig(min=0, max=2, step=0.05, mode=NumberSelectorMode.SLIDER)
+                        NumberSelectorConfig(
+                            min=0, max=2, step=0.05, mode=NumberSelectorMode.SLIDER
+                        )
                     ),
                     vol.Optional(CONF_MAX_TOKENS, default=DEFAULT_MAX_TOKENS): NumberSelector(
                         NumberSelectorConfig(min=1, max=32768, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Optional(CONF_TOP_P, default=DEFAULT_TOP_P): NumberSelector(
-                        NumberSelectorConfig(min=0, max=1, step=0.05, mode=NumberSelectorMode.SLIDER)
+                        NumberSelectorConfig(
+                            min=0, max=1, step=0.05, mode=NumberSelectorMode.SLIDER
+                        )
                     ),
                     vol.Optional(CONF_LLM_HASS_API): SelectSelector(
                         SelectSelectorConfig(
@@ -198,9 +197,7 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
 class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
     """AI Task subentry flow."""
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> SubentryFlowResult:
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
         """Handle subentry configuration."""
         if user_input is not None:
             return self.async_create_entry(
@@ -209,28 +206,32 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
             )
 
         entry = self._get_entry()
-        models = await _get_models(
-            self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY]
-        )
+        models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
                 {
-                    vol.Optional(CONF_CHAT_MODEL, default=models[0] if models else DEFAULT_CHAT_MODEL): SelectSelector(
+                    vol.Optional(
+                        CONF_CHAT_MODEL, default=models[0] if models else DEFAULT_CHAT_MODEL
+                    ): SelectSelector(
                         SelectSelectorConfig(
                             options=[SelectOptionDict(value=m, label=m) for m in models],
                             mode=SelectSelectorMode.DROPDOWN,
                         )
                     ),
                     vol.Optional(CONF_TEMPERATURE, default=DEFAULT_TEMPERATURE): NumberSelector(
-                        NumberSelectorConfig(min=0, max=2, step=0.05, mode=NumberSelectorMode.SLIDER)
+                        NumberSelectorConfig(
+                            min=0, max=2, step=0.05, mode=NumberSelectorMode.SLIDER
+                        )
                     ),
                     vol.Optional(CONF_MAX_TOKENS, default=DEFAULT_MAX_TOKENS): NumberSelector(
                         NumberSelectorConfig(min=1, max=32768, step=1, mode=NumberSelectorMode.BOX)
                     ),
                     vol.Optional(CONF_TOP_P, default=DEFAULT_TOP_P): NumberSelector(
-                        NumberSelectorConfig(min=0, max=1, step=0.05, mode=NumberSelectorMode.SLIDER)
+                        NumberSelectorConfig(
+                            min=0, max=1, step=0.05, mode=NumberSelectorMode.SLIDER
+                        )
                     ),
                 }
             ),

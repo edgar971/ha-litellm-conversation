@@ -39,9 +39,7 @@ class LiteLLMAITaskEntity(
 
     _attr_supported_features = ai_task.AITaskEntityFeature.GENERATE_DATA
 
-    def __init__(
-        self, entry: LiteLLMConfigEntry, subentry: ConfigSubentry
-    ) -> None:
+    def __init__(self, entry: LiteLLMConfigEntry, subentry: ConfigSubentry) -> None:
         """Initialize the entity."""
         super().__init__(entry, subentry)
 
@@ -60,9 +58,7 @@ class LiteLLMAITaskEntity(
         )
 
         if not isinstance(chat_log.content[-1], conversation.AssistantContent):
-            raise HomeAssistantError(
-                "Last content in chat log is not an AssistantContent"
-            )
+            raise HomeAssistantError("Last content in chat log is not an AssistantContent")
 
         text = chat_log.content[-1].content or ""
 
@@ -75,9 +71,7 @@ class LiteLLMAITaskEntity(
         try:
             data = json_loads(text)
         except JSONDecodeError as err:
-            raise HomeAssistantError(
-                "Error with LiteLLM structured response"
-            ) from err
+            raise HomeAssistantError("Error with LiteLLM structured response") from err
 
         return ai_task.GenDataTaskResult(
             conversation_id=chat_log.conversation_id,

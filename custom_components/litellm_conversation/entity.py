@@ -17,9 +17,6 @@ from openai.types.responses import (
     ResponseStreamEvent,
     ResponseTextDeltaEvent,
 )
-from openai.types.responses.response_create_params import (
-    ResponseCreateParamsStreaming,
-)
 from openai.types.responses.response_input_param import FunctionCallOutput
 import voluptuous as vol
 from voluptuous_openapi import convert
@@ -27,8 +24,8 @@ from voluptuous_openapi import convert
 from homeassistant.components import conversation
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers.entity import Entity
 from homeassistant.helpers import llm
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.json import json_dumps
 
 from .const import (
@@ -91,17 +88,16 @@ def _convert_content_to_param(
                 }
             )
 
-        if isinstance(content, conversation.AssistantContent):
-            if content.tool_calls:
-                for tool_call in content.tool_calls:
-                    messages.append(
-                        {
-                            "type": "function_call",
-                            "call_id": tool_call.id,
-                            "name": tool_call.tool_name,
-                            "arguments": json.dumps(tool_call.tool_args),
-                        }
-                    )
+        if isinstance(content, conversation.AssistantContent) and content.tool_calls:
+            for tool_call in content.tool_calls:
+                messages.append(
+                    {
+                        "type": "function_call",
+                        "call_id": tool_call.id,
+                        "name": tool_call.tool_name,
+                        "arguments": json.dumps(tool_call.tool_args),
+                    }
+                )
 
     return messages
 

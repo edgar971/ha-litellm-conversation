@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-
 pytest_plugins = "pytest_homeassistant_custom_component"
 
 
@@ -28,9 +27,7 @@ def mock_config_entry_data():
 @pytest.fixture
 def mock_openai_client():
     """Return a mocked AsyncOpenAI client."""
-    with patch(
-        "custom_components.litellm_conversation.openai.AsyncOpenAI"
-    ) as mock_client_cls:
+    with patch("custom_components.litellm_conversation.openai.AsyncOpenAI") as mock_client_cls:
         mock_client = AsyncMock()
         mock_client_cls.return_value = mock_client
         yield mock_client

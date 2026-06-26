@@ -302,6 +302,7 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
         """Handle subentry configuration."""
         if user_input is not None:
             data = dict(user_input)
+            title = data.pop("name", "") or "LiteLLM Conversation"
             # Remove empty optional fields
             if not data.get(CONF_LLM_HASS_API):
                 data.pop(CONF_LLM_HASS_API, None)
@@ -310,7 +311,7 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
             if data.get(CONF_REASONING_EFFORT) == "none":
                 data.pop(CONF_REASONING_EFFORT, None)
             return self.async_create_entry(
-                title=data.get(CONF_CHAT_MODEL, "LiteLLM Conversation"),
+                title=title,
                 data=data,
             )
 
@@ -323,6 +324,7 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
 
         schema = vol.Schema(
             {
+                vol.Optional("name", default="LiteLLM Conversation"): str,
                 vol.Optional(
                     CONF_CHAT_MODEL,
                     default=models[0] if models else DEFAULT_CHAT_MODEL,
@@ -372,6 +374,7 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
 
         if user_input is not None:
             data = dict(user_input)
+            title = data.pop("name", "") or subentry.title
             if not data.get(CONF_LLM_HASS_API):
                 data.pop(CONF_LLM_HASS_API, None)
             if not data.get(CONF_PROMPT):
@@ -381,7 +384,7 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
             return self.async_update_and_abort(
                 self._get_entry(),
                 self._get_reconfigure_subentry(),
-                title=data.get(CONF_CHAT_MODEL, subentry.title),
+                title=title,
                 data=data,
             )
 
@@ -394,6 +397,7 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
 
         schema = vol.Schema(
             {
+                vol.Optional("name", default=subentry.title): str,
                 vol.Optional(
                     CONF_CHAT_MODEL,
                     default=current.get(
@@ -457,9 +461,11 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
         """Handle subentry configuration."""
         if user_input is not None:
+            data = dict(user_input)
+            title = data.pop("name", "") or "LiteLLM AI Tasks"
             return self.async_create_entry(
-                title=user_input.get(CONF_CHAT_MODEL, "LiteLLM AI Tasks"),
-                data=user_input,
+                title=title,
+                data=data,
             )
 
         entry = self._get_entry()
@@ -469,6 +475,7 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
             step_id="user",
             data_schema=vol.Schema(
                 {
+                    vol.Optional("name", default="LiteLLM AI Tasks"): str,
                     vol.Optional(
                         CONF_CHAT_MODEL, default=models[0] if models else DEFAULT_CHAT_MODEL
                     ): SelectSelector(
@@ -503,11 +510,13 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
         current = dict(subentry.data)
 
         if user_input is not None:
+            data = dict(user_input)
+            title = data.pop("name", "") or subentry.title
             return self.async_update_and_abort(
                 self._get_entry(),
                 self._get_reconfigure_subentry(),
-                title=user_input.get(CONF_CHAT_MODEL, subentry.title),
-                data=user_input,
+                title=title,
+                data=data,
             )
 
         entry = self._get_entry()
@@ -517,6 +526,7 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
             step_id="reconfigure",
             data_schema=vol.Schema(
                 {
+                    vol.Optional("name", default=subentry.title): str,
                     vol.Optional(
                         CONF_CHAT_MODEL,
                         default=current.get(

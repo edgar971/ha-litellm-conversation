@@ -58,12 +58,14 @@
             "max_tokens": "Maximum tokens",
             "top_p": "Top P",
             "reasoning_effort": "Reasoning effort",
-            "llm_hass_api": "Home Assistant LLM API"
+            "llm_hass_api": "Home Assistant LLM API",
+            "name": "Name"
           },
           "data_description": {
             "prompt": "Instructions for the AI. Leave blank to use the default Home Assistant prompt.",
             "reasoning_effort": "Reasoning effort for o-series models. Set to 'None' for standard models.",
-            "llm_hass_api": "Select a Home Assistant LLM API to allow the agent to control your home."
+            "llm_hass_api": "Select a Home Assistant LLM API to allow the agent to control your home.",
+            "name": "A friendly name for this conversation agent."
           }
         },
         "reconfigure": {
@@ -75,7 +77,8 @@
             "max_tokens": "Maximum tokens",
             "top_p": "Top P",
             "reasoning_effort": "Reasoning effort",
-            "llm_hass_api": "Home Assistant LLM API"
+            "llm_hass_api": "Home Assistant LLM API",
+            "name": "Name"
           },
           "data_description": {
             "prompt": "Instructions for the AI. Leave blank to use the default Home Assistant prompt.",
@@ -100,7 +103,8 @@
             "chat_model": "Model",
             "temperature": "Temperature",
             "max_tokens": "Maximum tokens",
-            "top_p": "Top P"
+            "top_p": "Top P",
+            "name": "Name"
           }
         },
         "reconfigure": {
@@ -109,7 +113,8 @@
             "chat_model": "Model",
             "temperature": "Temperature",
             "max_tokens": "Maximum tokens",
-            "top_p": "Top P"
+            "top_p": "Top P",
+            "name": "Name"
           }
         }
       },

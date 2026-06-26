@@ -1,14 +1,13 @@
 {
   "name": "ha-litellm-conversation Dev",
   "image": "ghcr.io/ludeeus/devcontainer/integration:stable",
-  "postCreateCommand": "pip install -e '.[dev]'",
+  "postCreateCommand": "scripts/develop",
   "customizations": {
     "vscode": {
       "extensions": [
         "ms-python.python",
         "ms-python.vscode-pylance",
-        "charliermarsh.ruff",
-        "ms-python.mypy-type-stubs"
+        "charliermarsh.ruff"
       ],
       "settings": {
         "python.defaultInterpreterPath": "/usr/local/bin/python",
@@ -23,8 +22,5 @@
       }
     }
   },
-  "mounts": [
-    "source=${localWorkspaceFolder}/custom_components,target=/workspaces/ha-litellm-conversation/custom_components,type=bind"
-  ],
   "remoteUser": "vscode"
 }

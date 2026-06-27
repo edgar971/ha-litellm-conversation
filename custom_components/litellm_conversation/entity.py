@@ -103,6 +103,38 @@ async def _transform_stream(
     """Transform a Chat Completions stream into HA chat log delta dicts."""
     current_tool_calls: dict[int, dict[str, Any]] = {}
 
+    def _flush_tool_calls() -> list[llm.ToolInput]:
+        """Build ToolInput list from accumulated tool calls and clear the buffer."""
+        tool_inputs: list[llm.ToolInput] = []
+        for tc in current_tool_calls.values():
+            if tc["tool_call_id"] and tc["tool_name"]:
+                _LOGGER.debug(
+                    "Tool call completed: %s (call_id=%s)",
+                    tc["tool_name"],
+                    tc["tool_call_id"],
+                )
+                args_json = tc["tool_args_json"] or "{}"
+                try:
+                    tool_args = json.loads(args_json)
+                except (ValueError, TypeError) as err:
+                    _LOGGER.warning(
+                        "Failed to parse tool arguments for %s (call_id=%s): %s -- raw=%s",
+                        tc["tool_name"],
+                        tc["tool_call_id"],
+                        err,
+                        repr(args_json),
+                    )
+                    tool_args = {}
+                tool_inputs.append(
+                    llm.ToolInput(
+                        id=tc["tool_call_id"],
+                        tool_name=tc["tool_name"],
+                        tool_args=tool_args,
+                    )
+                )
+        current_tool_calls.clear()
+        return tool_inputs
+
     async for chunk in result:
         choice = chunk.choices[0] if chunk.choices else None
         if choice is None:
@@ -110,58 +142,47 @@ async def _transform_stream(
             continue
 
         delta = choice.delta
-        if delta is None:
+
+        if delta is not None:
+            # Text content
+            if delta.content:
+                _LOGGER.debug("Stream text delta: %s", repr(delta.content[:80]))
+                yield {"content": delta.content}
+
+            # Tool calls
+            if delta.tool_calls:
+                for tc_delta in delta.tool_calls:
+                    idx = tc_delta.index
+                    if idx not in current_tool_calls:
+                        current_tool_calls[idx] = {
+                            "tool_call_id": tc_delta.id or "",
+                            "tool_name": "",
+                            "tool_args_json": "",
+                        }
+                    tc = current_tool_calls[idx]
+                    if tc_delta.id:
+                        tc["tool_call_id"] = tc_delta.id
+                    if tc_delta.function:
+                        if tc_delta.function.name:
+                            tc["tool_name"] = tc_delta.function.name
+                        if tc_delta.function.arguments:
+                            tc["tool_args_json"] += tc_delta.function.arguments
+        else:
             _LOGGER.debug("Stream chunk with no delta: finish_reason=%s", choice.finish_reason)
-            continue
 
-        # Text content
-        if delta.content:
-            _LOGGER.debug("Stream text delta: %s", repr(delta.content[:80]))
-            yield {"content": delta.content}
-
-        # Tool calls
-        if delta.tool_calls:
-            for tc_delta in delta.tool_calls:
-                idx = tc_delta.index
-                if idx not in current_tool_calls:
-                    current_tool_calls[idx] = {
-                        "tool_call_id": tc_delta.id or "",
-                        "tool_name": "",
-                        "tool_args_json": "",
-                    }
-                tc = current_tool_calls[idx]
-                if tc_delta.id:
-                    tc["tool_call_id"] = tc_delta.id
-                if tc_delta.function:
-                    if tc_delta.function.name:
-                        tc["tool_name"] = tc_delta.function.name
-                    if tc_delta.function.arguments:
-                        tc["tool_args_json"] += tc_delta.function.arguments
-
-        # When the stream signals stop, emit any accumulated tool calls
-        if choice.finish_reason == "tool_calls":
-            tool_inputs = []
-            for tc in current_tool_calls.values():
-                if tc["tool_call_id"] and tc["tool_name"]:
-                    _LOGGER.debug(
-                        "Tool call completed: %s (call_id=%s)",
-                        tc["tool_name"],
-                        tc["tool_call_id"],
-                    )
-                    tool_inputs.append(
-                        llm.ToolInput(
-                            id=tc["tool_call_id"],
-                            tool_name=tc["tool_name"],
-                            tool_args=json.loads(tc["tool_args_json"] or "{}"),
-                        )
-                    )
-            if tool_inputs:
-                yield {"tool_calls": tool_inputs}
-            current_tool_calls.clear()
-
-        # Log finish reason
+        # On any terminal finish_reason, emit accumulated tool calls (we already
+        # have them buffered, regardless of the specific reason reported).
         if choice.finish_reason:
             _LOGGER.debug("Stream finished: reason=%s", choice.finish_reason)
+            tool_inputs = _flush_tool_calls()
+            if tool_inputs:
+                yield {"tool_calls": tool_inputs}
+
+    # Safety net: flush any leftover tool calls if the stream ended without a
+    # terminal finish_reason being observed.
+    tool_inputs = _flush_tool_calls()
+    if tool_inputs:
+        yield {"tool_calls": tool_inputs}
 
 
 class LiteLLMBaseLLMEntity(Entity):
@@ -289,6 +310,8 @@ class LiteLLMBaseLLMEntity(Entity):
                     translation_placeholders={"status_code": str(err.status_code)},
                 ) from err
 
+            content_len_before = len(chat_log.content)
+
             async for _ in chat_log.async_add_delta_content_stream(
                 self.entity_id, _transform_stream(response)
             ):
@@ -302,10 +325,8 @@ class LiteLLMBaseLLMEntity(Entity):
                 _iteration + 1,
             )
 
-            # Verify we got a response
-            if not chat_log.content or not isinstance(
-                chat_log.content[-1], conversation.AssistantContent
-            ):
+            # Verify the stream actually added something to the chat log.
+            if len(chat_log.content) == content_len_before:
                 _LOGGER.error(
                     "Model returned no content (model=%s). Check proxy logs.",
                     model,

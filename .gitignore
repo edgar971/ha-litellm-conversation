@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# HA reference files (local-only copies pulled for context)
+*.haref_*
+.haref_*.py
+
+# Env / secrets
+.env
+.venv/
+venv/

@@ -138,7 +138,6 @@ async def _transform_stream(
     async for chunk in result:
         choice = chunk.choices[0] if chunk.choices else None
         if choice is None:
-            _LOGGER.debug("Stream chunk with no choices: %s", chunk)
             continue
 
         delta = choice.delta
@@ -146,7 +145,6 @@ async def _transform_stream(
         if delta is not None:
             # Text content
             if delta.content:
-                _LOGGER.debug("Stream text delta: %s", repr(delta.content[:80]))
                 yield {"content": delta.content}
 
             # Tool calls
@@ -167,13 +165,10 @@ async def _transform_stream(
                             tc["tool_name"] = tc_delta.function.name
                         if tc_delta.function.arguments:
                             tc["tool_args_json"] += tc_delta.function.arguments
-        else:
-            _LOGGER.debug("Stream chunk with no delta: finish_reason=%s", choice.finish_reason)
 
         # On any terminal finish_reason, emit accumulated tool calls (we already
         # have them buffered, regardless of the specific reason reported).
         if choice.finish_reason:
-            _LOGGER.debug("Stream finished: reason=%s", choice.finish_reason)
             tool_inputs = _flush_tool_calls()
             if tool_inputs:
                 yield {"tool_calls": tool_inputs}

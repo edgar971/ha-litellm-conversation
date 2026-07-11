@@ -101,7 +101,8 @@
       "abort": {
         "already_configured": "This conversation agent is already configured.",
         "reconfigure_successful": "Re-configuration was successful."
-      }
+      },
+      "entry_type": "Conversation agent"
     },
     "ai_task_data": {
       "initiate_flow": {
@@ -132,7 +133,8 @@
       "abort": {
         "already_configured": "This AI task provider is already configured.",
         "reconfigure_successful": "Re-configuration was successful."
-      }
+      },
+      "entry_type": "AI task provider"
     }
   },
   "exceptions": {

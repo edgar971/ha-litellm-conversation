@@ -26,7 +26,7 @@ A Home Assistant custom integration that connects any [LiteLLM proxy](https://do
 
 ### Prerequisites
 
-- Home Assistant **2024.12.0** or later
+- Home Assistant **2025.7.0** or later (uses config subentries and the modern ChatLog LLM APIs)
 - A running [LiteLLM proxy](https://docs.litellm.ai/docs/proxy/quick_start) with at least one model configured
 
 ### Via HACS (Recommended)

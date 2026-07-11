@@ -25,6 +25,16 @@
           "api_key": "Your LiteLLM virtual API key"
         }
       },
+      "reauth_confirm": {
+        "title": "Reauthenticate LiteLLM Proxy",
+        "description": "The API key for {base_url} is no longer valid. Enter a new API key.",
+        "data": {
+          "api_key": "API Key"
+        },
+        "data_description": {
+          "api_key": "Your LiteLLM virtual API key"
+        }
+      },
       "models": {
         "title": "Select Model",
         "description": "Found {model_count} models on your LiteLLM proxy. Select a default model for conversation and AI tasks.",
@@ -40,7 +50,8 @@
     },
     "abort": {
       "already_configured": "LiteLLM Conversation is already configured.",
-      "reconfigure_successful": "Re-configuration was successful."
+      "reconfigure_successful": "Re-configuration was successful.",
+      "reauth_successful": "Re-authentication was successful."
     }
   },
   "config_subentries": {

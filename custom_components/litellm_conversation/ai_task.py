@@ -57,7 +57,6 @@ class LiteLLMAITaskEntity(
             chat_log,
             structure_name=task.name,
             structure=task.structure,
-            max_iterations=1000,
         )
 
         if not isinstance(chat_log.content[-1], conversation.AssistantContent):

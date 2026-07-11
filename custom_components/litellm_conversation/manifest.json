@@ -5,9 +5,10 @@
   "config_flow": true,
   "dependencies": ["conversation", "ai_task"],
   "documentation": "https://github.com/edgar971/ha-litellm-conversation",
-  "issue_tracker": "https://github.com/edgar971/ha-litellm-conversation/issues",
   "integration_type": "service",
   "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/edgar971/ha-litellm-conversation/issues",
+  "loggers": ["openai"],
   "requirements": ["openai>=1.58.1", "voluptuous-openapi>=0.0.5"],
-  "version": "1.1.0"
+  "version": "1.2.0"
 }

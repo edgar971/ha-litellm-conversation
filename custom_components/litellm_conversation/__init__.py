@@ -34,7 +34,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> b
 
     # Validate connection at setup
     try:
-        await hass.async_add_executor_job(client.with_options(timeout=10.0).models.list)
+        await client.with_options(timeout=10.0).models.list()
     except openai.AuthenticationError as err:
         raise ConfigEntryAuthFailed(err) from err
     except openai.OpenAIError as err:

@@ -9,7 +9,7 @@
           "api_key": "API Key"
         },
         "data_description": {
-          "base_url": "The URL of your LiteLLM proxy (e.g. https://my-litellm-proxy.example.com)",
+          "base_url": "The URL of your LiteLLM proxy, without the /v1 suffix",
           "api_key": "Your LiteLLM virtual API key"
         }
       },
@@ -21,7 +21,7 @@
           "api_key": "API Key"
         },
         "data_description": {
-          "base_url": "The URL of your LiteLLM proxy (e.g. https://my-litellm-proxy.example.com)",
+          "base_url": "The URL of your LiteLLM proxy, without the /v1 suffix",
           "api_key": "Your LiteLLM virtual API key"
         }
       },

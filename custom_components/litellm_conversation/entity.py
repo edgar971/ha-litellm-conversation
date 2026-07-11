@@ -39,9 +39,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _format_tool(
-    tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None
-) -> dict[str, Any]:
+def _format_tool(tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None) -> dict[str, Any]:
     """Format tool specification for Chat Completions API."""
     schema = convert(tool.parameters, custom_serializer=custom_serializer)
     return {
@@ -145,6 +143,10 @@ async def _transform_stream(
         delta = choice.delta
 
         if delta is not None:
+            # Reasoning/thinking content (LiteLLM surfaces this for reasoning models)
+            if reasoning := getattr(delta, "reasoning_content", None):
+                yield {"thinking_content": reasoning}
+
             # Text content
             if delta.content:
                 yield {"content": delta.content}
@@ -261,12 +263,12 @@ class LiteLLMBaseLLMEntity(Entity):
                 },
             }
 
-        extra_headers: dict[str, str] = {}
-        if reasoning_effort and reasoning_effort != "none":
-            extra_headers["x-litellm-reasoning-effort"] = reasoning_effort
-
         # Ask the proxy to silently drop any params unsupported by the target provider.
         extra_body: dict[str, Any] = {"drop_params": True}
+        # reasoning_effort is a LiteLLM body param (not a header); drop_params
+        # strips it for models that don't support reasoning.
+        if reasoning_effort and reasoning_effort != "none":
+            extra_body["reasoning_effort"] = reasoning_effort
 
         for _iteration in range(max_iterations):
             _LOGGER.debug(
@@ -281,7 +283,6 @@ class LiteLLMBaseLLMEntity(Entity):
             try:
                 response = await self.client.chat.completions.create(
                     **create_params,
-                    **({"extra_headers": extra_headers} if extra_headers else {}),
                     extra_body=extra_body,
                 )
             except openai.AuthenticationError as err:

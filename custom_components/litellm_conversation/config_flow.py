@@ -214,7 +214,11 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                 existing = self.hass.config_entries.async_entry_for_domain_unique_id(
                     self.handler, base_url
                 )
-                if existing is not None and entry is not None and existing.entry_id != entry.entry_id:
+                if (
+                    existing is not None
+                    and entry is not None
+                    and existing.entry_id != entry.entry_id
+                ):
                     return self.async_abort(reason="already_configured")
                 return self.async_update_reload_and_abort(
                     entry,

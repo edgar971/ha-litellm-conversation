@@ -18,7 +18,22 @@ A Home Assistant custom integration that connects any [LiteLLM proxy](https://do
 | 📊 **AI Task: generate_data** | Structured output via the `ai_task` platform — parse, classify, or generate JSON |
 | 🔑 **Custom System Prompts** | Per-subentry system prompt templates with HA template variables |
 | ⚙️ **Full Model Control** | Configure model, temperature, top-p, and max tokens per subentry |
+| 🔎 **Web Search** | Optional native web search via LiteLLM's `web_search_options` passthrough |
+| 🎤 **Speech-to-Text** | Whisper-compatible STT platform for voice assistant pipelines |
+| 🔊 **Text-to-Speech** | OpenAI-compatible TTS platform with voice selection |
+| 📈 **Usage Sensors** | Daily request/token counters exposed as diagnostic sensors |
+| 🛡️ **Guardrails** | Pass LiteLLM proxy guardrails (PII masking, content filtering) per agent |
 | 🌐 **Any Model LiteLLM Supports** | One proxy, unlimited backends: Bedrock, OpenAI, Anthropic, Ollama, Mistral, Gemini, and more |
+
+---
+
+## 🔌 Use with MCP Servers
+
+Home Assistant's [MCP integration](https://www.home-assistant.io/integrations/mcp/) exposes tools from any MCP server (memory, web search, RAG, etc.) to conversation agents through the HA LLM API framework. This integration supports that out of the box:
+
+1. Set up the **Model Context Protocol** integration in HA and point it at your MCP server(s).
+2. In your LiteLLM conversation agent's options, select the MCP-provided API under **Home Assistant LLM API** (alongside or instead of the built-in Assist API).
+3. The MCP server's tools are now available to your agent automatically — no extra configuration needed here.
 
 ---
 

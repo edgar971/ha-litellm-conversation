@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 import json
 import logging
 import time
@@ -39,9 +39,11 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-def _format_tool(tool: llm.Tool) -> dict[str, Any]:
+def _format_tool(
+    tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None
+) -> dict[str, Any]:
     """Format tool specification for Chat Completions API."""
-    schema = convert(tool.parameters)
+    schema = convert(tool.parameters, custom_serializer=custom_serializer)
     return {
         "type": "function",
         "function": {
@@ -212,11 +214,14 @@ class LiteLLMBaseLLMEntity(Entity):
         """Handle a chat log using the Chat Completions API."""
         tools: list[dict[str, Any]] | None = None
         if chat_log.llm_api is not None:
-            tools = [_format_tool(tool) for tool in chat_log.llm_api.tools]
+            tools = [
+                _format_tool(tool, chat_log.llm_api.custom_serializer)
+                for tool in chat_log.llm_api.tools
+            ]
 
         model = self.subentry.data.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL)
-        temperature = self.subentry.data.get(CONF_TEMPERATURE, RECOMMENDED_TEMPERATURE)
-        top_p = self.subentry.data.get(CONF_TOP_P, RECOMMENDED_TOP_P)
+        temperature = self.subentry.data.get(CONF_TEMPERATURE)
+        top_p = self.subentry.data.get(CONF_TOP_P)
         max_tokens = self.subentry.data.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS)
         reasoning_effort = self.subentry.data.get(CONF_REASONING_EFFORT)
 
@@ -229,13 +234,18 @@ class LiteLLMBaseLLMEntity(Entity):
             "max_tokens": max_tokens,
         }
 
-        # Only send temperature OR top_p (not both) to avoid Bedrock errors.
-        if temperature != RECOMMENDED_TEMPERATURE:
+        # Only send temperature OR top_p (not both) — Bedrock rejects requests
+        # containing both. Prefer temperature; omit both when unset so the
+        # provider default applies.
+        if temperature is not None and temperature != RECOMMENDED_TEMPERATURE:
             create_params["temperature"] = temperature
-        elif top_p != RECOMMENDED_TOP_P:
+            if top_p is not None and top_p != RECOMMENDED_TOP_P:
+                _LOGGER.warning(
+                    "Both temperature and top_p are set; sending only temperature "
+                    "(some providers reject both)"
+                )
+        elif top_p is not None and top_p != RECOMMENDED_TOP_P:
             create_params["top_p"] = top_p
-        else:
-            create_params["temperature"] = temperature
 
         if tools:
             create_params["tools"] = tools

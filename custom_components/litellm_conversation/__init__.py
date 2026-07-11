@@ -13,7 +13,13 @@ from homeassistant.helpers.httpx_client import get_async_client
 from .const import CONF_BASE_URL, LOGGER
 from .const import DOMAIN as DOMAIN
 
-PLATFORMS = (Platform.CONVERSATION, Platform.AI_TASK)
+PLATFORMS = (
+    Platform.CONVERSATION,
+    Platform.AI_TASK,
+    Platform.SENSOR,
+    Platform.STT,
+    Platform.TTS,
+)
 
 type LiteLLMConfigEntry = ConfigEntry[openai.AsyncOpenAI]
 

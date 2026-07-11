@@ -69,12 +69,18 @@
             "max_tokens": "Maximum tokens",
             "top_p": "Top P",
             "reasoning_effort": "Reasoning effort",
+            "web_search": "Enable web search",
+            "web_search_context_size": "Web search context size",
+            "guardrails": "Guardrails",
             "llm_hass_api": "Home Assistant LLM API",
             "name": "Name"
           },
           "data_description": {
             "prompt": "Instructions for the AI. Leave blank to use the default Home Assistant prompt.",
             "reasoning_effort": "Reasoning effort for o-series models. Set to 'None' for standard models.",
+            "web_search": "Allow the model to search the web (requires provider support via LiteLLM).",
+            "web_search_context_size": "How much search context to retrieve when web search is enabled.",
+            "guardrails": "Comma-separated LiteLLM guardrail names to apply to requests (e.g. 'pii-mask').",
             "llm_hass_api": "Select a Home Assistant LLM API to allow the agent to control your home.",
             "name": "A friendly name for this conversation agent."
           }
@@ -88,12 +94,18 @@
             "max_tokens": "Maximum tokens",
             "top_p": "Top P",
             "reasoning_effort": "Reasoning effort",
+            "web_search": "Enable web search",
+            "web_search_context_size": "Web search context size",
+            "guardrails": "Guardrails",
             "llm_hass_api": "Home Assistant LLM API",
             "name": "Name"
           },
           "data_description": {
             "prompt": "Instructions for the AI. Leave blank to use the default Home Assistant prompt.",
             "reasoning_effort": "Reasoning effort for o-series models. Set to 'None' for standard models.",
+            "web_search": "Allow the model to search the web (requires provider support via LiteLLM).",
+            "web_search_context_size": "How much search context to retrieve when web search is enabled.",
+            "guardrails": "Comma-separated LiteLLM guardrail names to apply to requests (e.g. 'pii-mask').",
             "llm_hass_api": "Select a Home Assistant LLM API to allow the agent to control your home."
           }
         }
@@ -135,6 +147,74 @@
         "reconfigure_successful": "Re-configuration was successful."
       },
       "entry_type": "AI task provider"
+    },
+    "stt": {
+      "initiate_flow": {
+        "user": "Add speech-to-text"
+      },
+      "step": {
+        "user": {
+          "title": "Configure speech-to-text",
+          "data": {
+            "stt_model": "Model",
+            "name": "Name"
+          },
+          "data_description": {
+            "stt_model": "A Whisper-compatible transcription model served by your LiteLLM proxy."
+          }
+        },
+        "reconfigure": {
+          "title": "Reconfigure speech-to-text",
+          "data": {
+            "stt_model": "Model",
+            "name": "Name"
+          },
+          "data_description": {
+            "stt_model": "A Whisper-compatible transcription model served by your LiteLLM proxy."
+          }
+        }
+      },
+      "abort": {
+        "already_configured": "This speech-to-text provider is already configured.",
+        "reconfigure_successful": "Re-configuration was successful."
+      },
+      "entry_type": "Speech-to-text"
+    },
+    "tts": {
+      "initiate_flow": {
+        "user": "Add text-to-speech"
+      },
+      "step": {
+        "user": {
+          "title": "Configure text-to-speech",
+          "data": {
+            "tts_model": "Model",
+            "tts_voice": "Voice",
+            "name": "Name"
+          },
+          "data_description": {
+            "tts_model": "An OpenAI-compatible speech model served by your LiteLLM proxy.",
+            "tts_voice": "Default voice used for speech generation."
+          }
+        },
+        "reconfigure": {
+          "title": "Reconfigure text-to-speech",
+          "data": {
+            "tts_model": "Model",
+            "tts_voice": "Voice",
+            "name": "Name"
+          },
+          "data_description": {
+            "tts_model": "An OpenAI-compatible speech model served by your LiteLLM proxy.",
+            "tts_voice": "Default voice used for speech generation."
+          }
+        }
+      },
+      "abort": {
+        "already_configured": "This text-to-speech provider is already configured.",
+        "reconfigure_successful": "Re-configuration was successful."
+      },
+      "entry_type": "Text-to-speech"
     }
   },
   "exceptions": {

@@ -20,6 +20,7 @@ from homeassistant.const import CONF_API_KEY, CONF_LLM_HASS_API
 from homeassistant.helpers import llm
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     NumberSelector,
     NumberSelectorConfig,
     NumberSelectorMode,
@@ -33,17 +34,29 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_BASE_URL,
     CONF_CHAT_MODEL,
+    CONF_GUARDRAILS,
     CONF_MAX_TOKENS,
     CONF_PROMPT,
     CONF_REASONING_EFFORT,
+    CONF_STT_MODEL,
     CONF_TEMPERATURE,
     CONF_TOP_P,
+    CONF_TTS_MODEL,
+    CONF_TTS_VOICE,
+    CONF_WEB_SEARCH,
+    CONF_WEB_SEARCH_CONTEXT_SIZE,
     DEFAULT_CHAT_MODEL,
     DEFAULT_MAX_TOKENS,
+    DEFAULT_STT_MODEL,
     DEFAULT_TEMPERATURE,
     DEFAULT_TOP_P,
+    DEFAULT_TTS_MODEL,
+    DEFAULT_TTS_VOICE,
+    DEFAULT_WEB_SEARCH_CONTEXT_SIZE,
     DOMAIN,
     REASONING_EFFORT_OPTIONS,
+    TTS_VOICES,
+    WEB_SEARCH_CONTEXT_OPTIONS,
 )
 
 
@@ -248,6 +261,8 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
         return {
             "conversation": LiteLLMConversationSubentryFlowHandler,
             "ai_task_data": LiteLLMAITaskSubentryFlowHandler,
+            "stt": LiteLLMSTTSubentryFlowHandler,
+            "tts": LiteLLMTTSSubentryFlowHandler,
         }
 
 
@@ -299,6 +314,27 @@ def _build_conversation_schema(
                     mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
+            vol.Optional(
+                CONF_WEB_SEARCH,
+                default=defaults.get(CONF_WEB_SEARCH, False),
+            ): BooleanSelector(),
+            vol.Optional(
+                CONF_WEB_SEARCH_CONTEXT_SIZE,
+                default=defaults.get(
+                    CONF_WEB_SEARCH_CONTEXT_SIZE, DEFAULT_WEB_SEARCH_CONTEXT_SIZE
+                ),
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=v, label=v.capitalize())
+                        for v in WEB_SEARCH_CONTEXT_OPTIONS
+                    ],
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                CONF_GUARDRAILS, default=defaults.get(CONF_GUARDRAILS, "")
+            ): str,
             vol.Optional(
                 CONF_LLM_HASS_API,
                 default=defaults.get(CONF_LLM_HASS_API, ""),
@@ -365,6 +401,11 @@ def _clean_conversation_data(data: dict[str, Any]) -> dict[str, Any]:
         data.pop(CONF_PROMPT, None)
     if data.get(CONF_REASONING_EFFORT) == "none":
         data.pop(CONF_REASONING_EFFORT, None)
+    if not data.get(CONF_WEB_SEARCH):
+        data.pop(CONF_WEB_SEARCH, None)
+        data.pop(CONF_WEB_SEARCH_CONTEXT_SIZE, None)
+    if not data.get(CONF_GUARDRAILS):
+        data.pop(CONF_GUARDRAILS, None)
     return data
 
 
@@ -461,4 +502,142 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=_build_ai_task_schema(models, dict(subentry.data), subentry.title),
+        )
+
+
+def _build_stt_schema(
+    models: list[str],
+    defaults: dict[str, Any],
+    default_name: str,
+) -> vol.Schema:
+    """Build the STT subentry schema."""
+    return vol.Schema(
+        {
+            vol.Optional("name", default=default_name): str,
+            vol.Optional(
+                CONF_STT_MODEL,
+                default=defaults.get(CONF_STT_MODEL, DEFAULT_STT_MODEL),
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[SelectOptionDict(value=m, label=m) for m in models],
+                    custom_value=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        }
+    )
+
+
+def _build_tts_schema(
+    models: list[str],
+    defaults: dict[str, Any],
+    default_name: str,
+) -> vol.Schema:
+    """Build the TTS subentry schema."""
+    return vol.Schema(
+        {
+            vol.Optional("name", default=default_name): str,
+            vol.Optional(
+                CONF_TTS_MODEL,
+                default=defaults.get(CONF_TTS_MODEL, DEFAULT_TTS_MODEL),
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[SelectOptionDict(value=m, label=m) for m in models],
+                    custom_value=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                CONF_TTS_VOICE,
+                default=defaults.get(CONF_TTS_VOICE, DEFAULT_TTS_VOICE),
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=v, label=v.capitalize()) for v in TTS_VOICES
+                    ],
+                    custom_value=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        }
+    )
+
+
+class LiteLLMSTTSubentryFlowHandler(ConfigSubentryFlow):
+    """Speech-to-text subentry flow."""
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        """Handle subentry configuration."""
+        if user_input is not None:
+            data = dict(user_input)
+            title = data.pop("name", "") or "LiteLLM STT"
+            return self.async_create_entry(title=title, data=data)
+
+        entry = self._get_entry()
+        models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_build_stt_schema(models, {}, "LiteLLM STT"),
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Handle reconfiguration of an existing STT subentry."""
+        subentry = self._get_reconfigure_subentry()
+
+        if user_input is not None:
+            data = dict(user_input)
+            title = data.pop("name", "") or subentry.title
+            return self.async_update_and_abort(
+                self._get_entry(), subentry, title=title, data=data
+            )
+
+        entry = self._get_entry()
+        models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_build_stt_schema(models, dict(subentry.data), subentry.title),
+        )
+
+
+class LiteLLMTTSSubentryFlowHandler(ConfigSubentryFlow):
+    """Text-to-speech subentry flow."""
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        """Handle subentry configuration."""
+        if user_input is not None:
+            data = dict(user_input)
+            title = data.pop("name", "") or "LiteLLM TTS"
+            return self.async_create_entry(title=title, data=data)
+
+        entry = self._get_entry()
+        models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_build_tts_schema(models, {}, "LiteLLM TTS"),
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Handle reconfiguration of an existing TTS subentry."""
+        subentry = self._get_reconfigure_subentry()
+
+        if user_input is not None:
+            data = dict(user_input)
+            title = data.pop("name", "") or subentry.title
+            return self.async_update_and_abort(
+                self._get_entry(), subentry, title=title, data=data
+            )
+
+        entry = self._get_entry()
+        models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_build_tts_schema(models, dict(subentry.data), subentry.title),
         )

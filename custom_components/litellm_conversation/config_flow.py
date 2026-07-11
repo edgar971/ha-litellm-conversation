@@ -108,6 +108,8 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
 
             errors = await _validate_connection(self.hass, base_url, api_key)
             if not errors:
+                await self.async_set_unique_id(base_url)
+                self._abort_if_unique_id_configured()
                 self._base_url = base_url
                 self._api_key = api_key
                 self._models = await _get_models(self.hass, base_url, api_key)
@@ -180,8 +182,15 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
 
             errors = await _validate_connection(self.hass, base_url, api_key)
             if not errors:
+                # Abort only if a *different* entry already uses this proxy URL.
+                existing = self.hass.config_entries.async_entry_for_domain_unique_id(
+                    self.handler, base_url
+                )
+                if existing is not None and entry is not None and existing.entry_id != entry.entry_id:
+                    return self.async_abort(reason="already_configured")
                 return self.async_update_reload_and_abort(
                     entry,
+                    unique_id=base_url,
                     data={CONF_BASE_URL: base_url, CONF_API_KEY: api_key},
                 )
 

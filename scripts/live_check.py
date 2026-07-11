@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Standalone live streaming test against the LiteLLM proxy.
+"""Standalone live streaming check against a LiteLLM proxy.
 
 Mirrors what custom_components/litellm_conversation/entity.py::_transform_stream
 does, so we can verify tool calling end-to-end without a running Home Assistant.
 
 Run:
-    python3 tests/test_streaming_live.py
-
-API key resolution order:
-    1. $LITELLM_API_KEY
-    2. ~/.openclaw/openclaw.json at models.providers.litellm.apiKey
+    LITELLM_BASE_URL=https://your-proxy.example.com/v1 \
+    LITELLM_API_KEY=sk-... \
+    LITELLM_MODEL=your-model \
+    python3 scripts/live_check.py
 """
 
 from __future__ import annotations
@@ -17,13 +16,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from pathlib import Path
+import sys
 from typing import Any
 
 import openai
 
-BASE_URL = "https://llm.pinocasa.com/v1"
-MODEL = "bedrock-claude-4-6-sonnet"
+BASE_URL = os.environ.get("LITELLM_BASE_URL", "")
+MODEL = os.environ.get("LITELLM_MODEL", "gpt-4o-mini")
 
 TOOLS: list[dict[str, Any]] = [
     {
@@ -43,11 +42,9 @@ TOOLS: list[dict[str, Any]] = [
 
 def _load_api_key() -> str:
     key = os.environ.get("LITELLM_API_KEY")
-    if key:
-        return key
-    cfg = Path.home() / ".openclaw" / "openclaw.json"
-    data = json.loads(cfg.read_text())
-    return data["models"]["providers"]["litellm"]["apiKey"]
+    if not key:
+        sys.exit("Set LITELLM_API_KEY (and LITELLM_BASE_URL / LITELLM_MODEL).")
+    return key
 
 
 async def _transform_stream(result: openai.AsyncStream) -> list[dict[str, Any]]:
@@ -230,6 +227,8 @@ async def test_tool_followup(client: openai.AsyncOpenAI, tool_calls: list[dict[s
 
 
 async def main() -> int:
+    if not BASE_URL:
+        sys.exit("Set LITELLM_BASE_URL (e.g. https://your-proxy.example.com/v1).")
     client = openai.AsyncOpenAI(api_key=_load_api_key(), base_url=BASE_URL)
 
     a = await test_simple_text(client)

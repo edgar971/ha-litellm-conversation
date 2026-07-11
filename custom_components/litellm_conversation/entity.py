@@ -15,22 +15,28 @@ from homeassistant.components import conversation
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.json import json_dumps
 
 from .const import (
     CONF_CHAT_MODEL,
+    CONF_GUARDRAILS,
     CONF_MAX_TOKENS,
     CONF_REASONING_EFFORT,
     CONF_TEMPERATURE,
     CONF_TOP_P,
+    CONF_WEB_SEARCH,
+    CONF_WEB_SEARCH_CONTEXT_SIZE,
     DEFAULT_CHAT_MODEL,
     DEFAULT_MAX_TOKENS,
     DEFAULT_TEMPERATURE,
     DEFAULT_TOP_P,
+    DEFAULT_WEB_SEARCH_CONTEXT_SIZE,
     DOMAIN,
     LOGGER,
     MAX_TOOL_ITERATIONS,
+    SIGNAL_USAGE_UPDATED,
 )
 
 if TYPE_CHECKING:
@@ -97,8 +103,13 @@ def _convert_content_to_messages(
 
 async def _transform_stream(
     result: openai.AsyncStream,
+    usage_out: dict[str, Any] | None = None,
 ) -> AsyncGenerator[conversation.AssistantContentDeltaDict]:
-    """Transform a Chat Completions stream into HA chat log delta dicts."""
+    """Transform a Chat Completions stream into HA chat log delta dicts.
+
+    If usage_out is provided, token usage from the final stream chunk
+    (requires stream_options include_usage) is written into it.
+    """
     current_tool_calls: dict[int, dict[str, Any]] = {}
 
     def _flush_tool_calls() -> list[llm.ToolInput]:
@@ -134,6 +145,12 @@ async def _transform_stream(
         return tool_inputs
 
     async for chunk in result:
+        # Capture usage from the final chunk (include_usage stream option).
+        if usage_out is not None and getattr(chunk, "usage", None):
+            usage_out["prompt_tokens"] = chunk.usage.prompt_tokens
+            usage_out["completion_tokens"] = chunk.usage.completion_tokens
+            usage_out["total_tokens"] = chunk.usage.total_tokens
+
         choice = chunk.choices[0] if chunk.choices else None
         if choice is None:
             continue
@@ -224,6 +241,8 @@ class LiteLLMBaseLLMEntity(Entity):
         top_p = self.subentry.data.get(CONF_TOP_P)
         max_tokens = self.subentry.data.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)
         reasoning_effort = self.subentry.data.get(CONF_REASONING_EFFORT)
+        web_search = self.subentry.data.get(CONF_WEB_SEARCH, False)
+        guardrails = self.subentry.data.get(CONF_GUARDRAILS, "")
 
         messages = _convert_content_to_messages(chat_log.content)
 
@@ -231,6 +250,7 @@ class LiteLLMBaseLLMEntity(Entity):
             "model": model,
             "messages": messages,
             "stream": True,
+            "stream_options": {"include_usage": True},
             "max_tokens": max_tokens,
         }
 
@@ -267,6 +287,20 @@ class LiteLLMBaseLLMEntity(Entity):
         # strips it for models that don't support reasoning.
         if reasoning_effort and reasoning_effort != "none":
             extra_body["reasoning_effort"] = reasoning_effort
+
+        # Native web search (Chat Completions web_search_options — LiteLLM
+        # translates per provider; drop_params strips it when unsupported).
+        if web_search:
+            context_size = self.subentry.data.get(
+                CONF_WEB_SEARCH_CONTEXT_SIZE, DEFAULT_WEB_SEARCH_CONTEXT_SIZE
+            )
+            extra_body["web_search_options"] = {"search_context_size": context_size}
+
+        # LiteLLM proxy guardrails (comma-separated names -> list body param).
+        if guardrails:
+            extra_body["guardrails"] = [
+                g.strip() for g in guardrails.split(",") if g.strip()
+            ]
 
         for _iteration in range(max_iterations):
             LOGGER.debug(
@@ -316,18 +350,28 @@ class LiteLLMBaseLLMEntity(Entity):
 
             content_len_before = len(chat_log.content)
 
+            usage: dict[str, Any] = {}
             async for _ in chat_log.async_add_delta_content_stream(
-                self.entity_id, _transform_stream(response)
+                self.entity_id, _transform_stream(response, usage)
             ):
                 pass
 
             latency_ms = (time.monotonic() - t0) * 1000
             LOGGER.info(
-                "LiteLLM response: model=%s latency=%.0fms iteration=%d",
+                "LiteLLM response: model=%s latency=%.0fms iteration=%d tokens=%s",
                 model,
                 latency_ms,
                 _iteration + 1,
+                usage.get("total_tokens", "n/a"),
             )
+
+            # Notify usage sensors (if the sensor platform is loaded).
+            if usage:
+                async_dispatcher_send(
+                    self.hass,
+                    f"{SIGNAL_USAGE_UPDATED}_{self.entry.entry_id}",
+                    {"model": model, **usage},
+                )
 
             # Verify the stream actually added something to the chat log.
             if len(chat_log.content) == content_len_before:

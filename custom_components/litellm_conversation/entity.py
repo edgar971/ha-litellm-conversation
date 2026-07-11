@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator, Callable
 import json
-import logging
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -25,18 +24,17 @@ from .const import (
     CONF_REASONING_EFFORT,
     CONF_TEMPERATURE,
     CONF_TOP_P,
+    DEFAULT_CHAT_MODEL,
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TOP_P,
     DOMAIN,
+    LOGGER,
     MAX_TOOL_ITERATIONS,
-    RECOMMENDED_CHAT_MODEL,
-    RECOMMENDED_MAX_TOKENS,
-    RECOMMENDED_TEMPERATURE,
-    RECOMMENDED_TOP_P,
 )
 
 if TYPE_CHECKING:
     from . import LiteLLMConfigEntry
-
-_LOGGER = logging.getLogger(__name__)
 
 
 def _format_tool(tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None) -> dict[str, Any]:
@@ -108,7 +106,7 @@ async def _transform_stream(
         tool_inputs: list[llm.ToolInput] = []
         for tc in current_tool_calls.values():
             if tc["tool_call_id"] and tc["tool_name"]:
-                _LOGGER.debug(
+                LOGGER.debug(
                     "Tool call completed: %s (call_id=%s)",
                     tc["tool_name"],
                     tc["tool_call_id"],
@@ -117,7 +115,7 @@ async def _transform_stream(
                 try:
                     tool_args = json.loads(args_json)
                 except (ValueError, TypeError) as err:
-                    _LOGGER.warning(
+                    LOGGER.warning(
                         "Failed to parse tool arguments for %s (call_id=%s): %s -- raw=%s",
                         tc["tool_name"],
                         tc["tool_call_id"],
@@ -221,10 +219,10 @@ class LiteLLMBaseLLMEntity(Entity):
                 for tool in chat_log.llm_api.tools
             ]
 
-        model = self.subentry.data.get(CONF_CHAT_MODEL, RECOMMENDED_CHAT_MODEL)
+        model = self.subentry.data.get(CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL)
         temperature = self.subentry.data.get(CONF_TEMPERATURE)
         top_p = self.subentry.data.get(CONF_TOP_P)
-        max_tokens = self.subentry.data.get(CONF_MAX_TOKENS, RECOMMENDED_MAX_TOKENS)
+        max_tokens = self.subentry.data.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)
         reasoning_effort = self.subentry.data.get(CONF_REASONING_EFFORT)
 
         messages = _convert_content_to_messages(chat_log.content)
@@ -239,14 +237,14 @@ class LiteLLMBaseLLMEntity(Entity):
         # Only send temperature OR top_p (not both) — Bedrock rejects requests
         # containing both. Prefer temperature; omit both when unset so the
         # provider default applies.
-        if temperature is not None and temperature != RECOMMENDED_TEMPERATURE:
+        if temperature is not None and temperature != DEFAULT_TEMPERATURE:
             create_params["temperature"] = temperature
-            if top_p is not None and top_p != RECOMMENDED_TOP_P:
-                _LOGGER.warning(
+            if top_p is not None and top_p != DEFAULT_TOP_P:
+                LOGGER.warning(
                     "Both temperature and top_p are set; sending only temperature "
                     "(some providers reject both)"
                 )
-        elif top_p is not None and top_p != RECOMMENDED_TOP_P:
+        elif top_p is not None and top_p != DEFAULT_TOP_P:
             create_params["top_p"] = top_p
 
         if tools:
@@ -271,7 +269,7 @@ class LiteLLMBaseLLMEntity(Entity):
             extra_body["reasoning_effort"] = reasoning_effort
 
         for _iteration in range(max_iterations):
-            _LOGGER.debug(
+            LOGGER.debug(
                 "LiteLLM request: model=%s temperature=%s top_p=%s max_tokens=%s tools=%d",
                 model,
                 create_params.get("temperature", "unset"),
@@ -286,25 +284,25 @@ class LiteLLMBaseLLMEntity(Entity):
                     extra_body=extra_body,
                 )
             except openai.AuthenticationError as err:
-                _LOGGER.error("Authentication error (model=%s): %s", model, err)
+                LOGGER.error("Authentication error (model=%s): %s", model, err)
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="authentication_error",
                 ) from err
             except openai.RateLimitError as err:
-                _LOGGER.error("Rate limit error (model=%s): %s", model, err)
+                LOGGER.error("Rate limit error (model=%s): %s", model, err)
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="rate_limit_error",
                 ) from err
             except openai.APIConnectionError as err:
-                _LOGGER.error("Connection error (model=%s): %s", model, err)
+                LOGGER.error("Connection error (model=%s): %s", model, err)
                 raise HomeAssistantError(
                     translation_domain=DOMAIN,
                     translation_key="connection_error",
                 ) from err
             except openai.APIStatusError as err:
-                _LOGGER.error(
+                LOGGER.error(
                     "API status error (model=%s, status=%s): %s",
                     model,
                     err.status_code,
@@ -324,7 +322,7 @@ class LiteLLMBaseLLMEntity(Entity):
                 pass
 
             latency_ms = (time.monotonic() - t0) * 1000
-            _LOGGER.info(
+            LOGGER.info(
                 "LiteLLM response: model=%s latency=%.0fms iteration=%d",
                 model,
                 latency_ms,
@@ -333,7 +331,7 @@ class LiteLLMBaseLLMEntity(Entity):
 
             # Verify the stream actually added something to the chat log.
             if len(chat_log.content) == content_len_before:
-                _LOGGER.error(
+                LOGGER.error(
                     "Model returned no content (model=%s). Check proxy logs.",
                     model,
                 )

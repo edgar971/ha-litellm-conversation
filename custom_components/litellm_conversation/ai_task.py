@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from json import JSONDecodeError
-import logging
 from typing import override
 
 from homeassistant.components import ai_task, conversation
@@ -15,8 +14,6 @@ from homeassistant.util.json import json_loads
 
 from . import LiteLLMConfigEntry
 from .entity import LiteLLMBaseLLMEntity
-
-_LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(

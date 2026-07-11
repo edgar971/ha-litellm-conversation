@@ -251,10 +251,16 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
         }
 
 
-def _build_conversation_schema(models: list[str], defaults: dict[str, Any]) -> vol.Schema:
-    """Build the conversation subentry schema with optional defaults."""
+def _build_conversation_schema(
+    models: list[str],
+    llm_apis: list[SelectOptionDict],
+    defaults: dict[str, Any],
+    default_name: str,
+) -> vol.Schema:
+    """Build the conversation subentry schema (shared by user + reconfigure steps)."""
     return vol.Schema(
         {
+            vol.Optional("name", default=default_name): str,
             vol.Optional(
                 CONF_CHAT_MODEL,
                 default=defaults.get(CONF_CHAT_MODEL, models[0] if models else DEFAULT_CHAT_MODEL),
@@ -293,9 +299,12 @@ def _build_conversation_schema(models: list[str], defaults: dict[str, Any]) -> v
                     mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
-            vol.Optional(CONF_LLM_HASS_API): SelectSelector(
+            vol.Optional(
+                CONF_LLM_HASS_API,
+                default=defaults.get(CONF_LLM_HASS_API, ""),
+            ): SelectSelector(
                 SelectSelectorConfig(
-                    options=[SelectOptionDict(value="", label="No control")],
+                    options=llm_apis,
                     mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
@@ -303,10 +312,15 @@ def _build_conversation_schema(models: list[str], defaults: dict[str, Any]) -> v
     )
 
 
-def _build_ai_task_schema(models: list[str], defaults: dict[str, Any]) -> vol.Schema:
-    """Build the AI task subentry schema with optional defaults."""
+def _build_ai_task_schema(
+    models: list[str],
+    defaults: dict[str, Any],
+    default_name: str,
+) -> vol.Schema:
+    """Build the AI task subentry schema (shared by user + reconfigure steps)."""
     return vol.Schema(
         {
+            vol.Optional("name", default=default_name): str,
             vol.Optional(
                 CONF_CHAT_MODEL,
                 default=defaults.get(CONF_CHAT_MODEL, models[0] if models else DEFAULT_CHAT_MODEL),
@@ -336,6 +350,24 @@ def _build_ai_task_schema(models: list[str], defaults: dict[str, Any]) -> vol.Sc
     )
 
 
+def _llm_api_options(hass) -> list[SelectOptionDict]:
+    """Return LLM API selector options with a 'No control' default."""
+    return [SelectOptionDict(value="", label="No control")] + [
+        SelectOptionDict(value=api.id, label=api.name) for api in llm.async_get_apis(hass)
+    ]
+
+
+def _clean_conversation_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Drop empty optional fields from conversation subentry data."""
+    if not data.get(CONF_LLM_HASS_API):
+        data.pop(CONF_LLM_HASS_API, None)
+    if not data.get(CONF_PROMPT):
+        data.pop(CONF_PROMPT, None)
+    if data.get(CONF_REASONING_EFFORT) == "none":
+        data.pop(CONF_REASONING_EFFORT, None)
+    return data
+
+
 class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
     """Conversation subentry flow."""
 
@@ -344,156 +376,46 @@ class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
         if user_input is not None:
             data = dict(user_input)
             title = data.pop("name", "") or "LiteLLM Conversation"
-            # Remove empty optional fields
-            if not data.get(CONF_LLM_HASS_API):
-                data.pop(CONF_LLM_HASS_API, None)
-            if not data.get(CONF_PROMPT):
-                data.pop(CONF_PROMPT, None)
-            if data.get(CONF_REASONING_EFFORT) == "none":
-                data.pop(CONF_REASONING_EFFORT, None)
             return self.async_create_entry(
                 title=title,
-                data=data,
+                data=_clean_conversation_data(data),
             )
 
         entry = self._get_entry()
         models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
 
-        llm_apis = [SelectOptionDict(value="", label="No control")] + [
-            SelectOptionDict(value=api.id, label=api.name) for api in llm.async_get_apis(self.hass)
-        ]
-
-        schema = vol.Schema(
-            {
-                vol.Optional("name", default="LiteLLM Conversation"): str,
-                vol.Optional(
-                    CONF_CHAT_MODEL,
-                    default=models[0] if models else DEFAULT_CHAT_MODEL,
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=[SelectOptionDict(value=m, label=m) for m in models],
-                        custom_value=True,
-                        mode=SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-                vol.Optional(CONF_PROMPT): TemplateSelector(),
-                vol.Optional(CONF_TEMPERATURE, default=DEFAULT_TEMPERATURE): NumberSelector(
-                    NumberSelectorConfig(min=0, max=2, step=0.05, mode=NumberSelectorMode.SLIDER)
-                ),
-                vol.Optional(CONF_MAX_TOKENS, default=DEFAULT_MAX_TOKENS): NumberSelector(
-                    NumberSelectorConfig(min=1, max=32768, step=1, mode=NumberSelectorMode.BOX)
-                ),
-                vol.Optional(CONF_TOP_P, default=DEFAULT_TOP_P): NumberSelector(
-                    NumberSelectorConfig(min=0, max=1, step=0.05, mode=NumberSelectorMode.SLIDER)
-                ),
-                vol.Optional(CONF_REASONING_EFFORT, default="none"): SelectSelector(
-                    SelectSelectorConfig(
-                        options=[
-                            SelectOptionDict(value=v, label=v.capitalize())
-                            for v in REASONING_EFFORT_OPTIONS
-                        ],
-                        mode=SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-                vol.Optional(CONF_LLM_HASS_API): SelectSelector(
-                    SelectSelectorConfig(
-                        options=llm_apis,
-                        mode=SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-            }
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_build_conversation_schema(
+                models, _llm_api_options(self.hass), {}, "LiteLLM Conversation"
+            ),
         )
-
-        return self.async_show_form(step_id="user", data_schema=schema)
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
         """Handle reconfiguration of an existing conversation subentry."""
         subentry = self._get_reconfigure_subentry()
-        current = dict(subentry.data)
 
         if user_input is not None:
             data = dict(user_input)
             title = data.pop("name", "") or subentry.title
-            if not data.get(CONF_LLM_HASS_API):
-                data.pop(CONF_LLM_HASS_API, None)
-            if not data.get(CONF_PROMPT):
-                data.pop(CONF_PROMPT, None)
-            if data.get(CONF_REASONING_EFFORT) == "none":
-                data.pop(CONF_REASONING_EFFORT, None)
             return self.async_update_and_abort(
                 self._get_entry(),
-                self._get_reconfigure_subentry(),
+                subentry,
                 title=title,
-                data=data,
+                data=_clean_conversation_data(data),
             )
 
         entry = self._get_entry()
         models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
 
-        llm_apis = [SelectOptionDict(value="", label="No control")] + [
-            SelectOptionDict(value=api.id, label=api.name) for api in llm.async_get_apis(self.hass)
-        ]
-
-        schema = vol.Schema(
-            {
-                vol.Optional("name", default=subentry.title): str,
-                vol.Optional(
-                    CONF_CHAT_MODEL,
-                    default=current.get(
-                        CONF_CHAT_MODEL, models[0] if models else DEFAULT_CHAT_MODEL
-                    ),
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=[SelectOptionDict(value=m, label=m) for m in models],
-                        custom_value=True,
-                        mode=SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-                vol.Optional(CONF_PROMPT, default=current.get(CONF_PROMPT, "")): TemplateSelector(),
-                vol.Optional(
-                    CONF_TEMPERATURE,
-                    default=current.get(CONF_TEMPERATURE, DEFAULT_TEMPERATURE),
-                ): NumberSelector(
-                    NumberSelectorConfig(min=0, max=2, step=0.05, mode=NumberSelectorMode.SLIDER)
-                ),
-                vol.Optional(
-                    CONF_MAX_TOKENS,
-                    default=current.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS),
-                ): NumberSelector(
-                    NumberSelectorConfig(min=1, max=32768, step=1, mode=NumberSelectorMode.BOX)
-                ),
-                vol.Optional(
-                    CONF_TOP_P, default=current.get(CONF_TOP_P, DEFAULT_TOP_P)
-                ): NumberSelector(
-                    NumberSelectorConfig(min=0, max=1, step=0.05, mode=NumberSelectorMode.SLIDER)
-                ),
-                vol.Optional(
-                    CONF_REASONING_EFFORT,
-                    default=current.get(CONF_REASONING_EFFORT, "none"),
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=[
-                            SelectOptionDict(value=v, label=v.capitalize())
-                            for v in REASONING_EFFORT_OPTIONS
-                        ],
-                        mode=SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-                vol.Optional(
-                    CONF_LLM_HASS_API,
-                    default=current.get(CONF_LLM_HASS_API, ""),
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=llm_apis,
-                        mode=SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-            }
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_build_conversation_schema(
+                models, _llm_api_options(self.hass), dict(subentry.data), subentry.title
+            ),
         )
-
-        return self.async_show_form(step_id="reconfigure", data_schema=schema)
 
 
 class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
@@ -514,33 +436,7 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional("name", default="LiteLLM AI Tasks"): str,
-                    vol.Optional(
-                        CONF_CHAT_MODEL, default=models[0] if models else DEFAULT_CHAT_MODEL
-                    ): SelectSelector(
-                        SelectSelectorConfig(
-                            options=[SelectOptionDict(value=m, label=m) for m in models],
-                            custom_value=True,
-                            mode=SelectSelectorMode.DROPDOWN,
-                        )
-                    ),
-                    vol.Optional(CONF_TEMPERATURE, default=DEFAULT_TEMPERATURE): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=2, step=0.05, mode=NumberSelectorMode.SLIDER
-                        )
-                    ),
-                    vol.Optional(CONF_MAX_TOKENS, default=DEFAULT_MAX_TOKENS): NumberSelector(
-                        NumberSelectorConfig(min=1, max=32768, step=1, mode=NumberSelectorMode.BOX)
-                    ),
-                    vol.Optional(CONF_TOP_P, default=DEFAULT_TOP_P): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=1, step=0.05, mode=NumberSelectorMode.SLIDER
-                        )
-                    ),
-                }
-            ),
+            data_schema=_build_ai_task_schema(models, {}, "LiteLLM AI Tasks"),
         )
 
     async def async_step_reconfigure(
@@ -548,14 +444,13 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
     ) -> SubentryFlowResult:
         """Handle reconfiguration of an existing AI task subentry."""
         subentry = self._get_reconfigure_subentry()
-        current = dict(subentry.data)
 
         if user_input is not None:
             data = dict(user_input)
             title = data.pop("name", "") or subentry.title
             return self.async_update_and_abort(
                 self._get_entry(),
-                self._get_reconfigure_subentry(),
+                subentry,
                 title=title,
                 data=data,
             )
@@ -565,42 +460,5 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional("name", default=subentry.title): str,
-                    vol.Optional(
-                        CONF_CHAT_MODEL,
-                        default=current.get(
-                            CONF_CHAT_MODEL, models[0] if models else DEFAULT_CHAT_MODEL
-                        ),
-                    ): SelectSelector(
-                        SelectSelectorConfig(
-                            options=[SelectOptionDict(value=m, label=m) for m in models],
-                            custom_value=True,
-                            mode=SelectSelectorMode.DROPDOWN,
-                        )
-                    ),
-                    vol.Optional(
-                        CONF_TEMPERATURE,
-                        default=current.get(CONF_TEMPERATURE, DEFAULT_TEMPERATURE),
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=2, step=0.05, mode=NumberSelectorMode.SLIDER
-                        )
-                    ),
-                    vol.Optional(
-                        CONF_MAX_TOKENS,
-                        default=current.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS),
-                    ): NumberSelector(
-                        NumberSelectorConfig(min=1, max=32768, step=1, mode=NumberSelectorMode.BOX)
-                    ),
-                    vol.Optional(
-                        CONF_TOP_P, default=current.get(CONF_TOP_P, DEFAULT_TOP_P)
-                    ): NumberSelector(
-                        NumberSelectorConfig(
-                            min=0, max=1, step=0.05, mode=NumberSelectorMode.SLIDER
-                        )
-                    ),
-                }
-            ),
+            data_schema=_build_ai_task_schema(models, dict(subentry.data), subentry.title),
         )

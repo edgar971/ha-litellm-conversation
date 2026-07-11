@@ -10,7 +10,6 @@ jobs:
   lint:
     name: Lint & Format
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -32,8 +31,6 @@ jobs:
   test:
     name: Tests
     runs-on: ubuntu-latest
-    continue-on-error: true
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -48,3 +45,25 @@ jobs:
 
       - name: Run tests
         run: pytest tests/ -v --tb=short
+
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run hassfest validation
+        uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Run HACS validation
+        uses: hacs/action@main
+        with:
+          category: integration

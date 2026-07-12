@@ -12,7 +12,6 @@ from homeassistant.components.tts import (
     TtsAudioType,
     Voice,
 )
-from homeassistant.config_entries import ConfigSubentry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -49,10 +48,6 @@ class LiteLLMTTSEntity(TextToSpeechEntity, LiteLLMBaseLLMEntity):
     """LiteLLM text-to-speech entity (OpenAI-compatible /v1/audio/speech)."""
 
     _attr_supported_options: ClassVar[list[str]] = [ATTR_VOICE]
-
-    def __init__(self, entry: LiteLLMConfigEntry, subentry: ConfigSubentry) -> None:
-        """Initialize the TTS entity."""
-        super().__init__(entry, subentry)
 
     @property
     def supported_languages(self) -> list[str]:

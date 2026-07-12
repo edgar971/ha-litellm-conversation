@@ -31,8 +31,9 @@ dev = [
 where = ["."]
 include = ["custom_components*"]
 
-[tool.ruff]
-# Inherit settings from ruff.toml at repo root
+# NOTE: ruff is configured via ruff.toml at the repo root (used by CI and
+# pre-commit). Do not add [tool.ruff] here — ruff prefers ruff.toml when both
+# exist, so settings added here would be silently ignored.
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

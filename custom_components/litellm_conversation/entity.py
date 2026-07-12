@@ -187,7 +187,7 @@ def _convert_content_to_messages(
                         "type": "function",
                         "function": {
                             "name": tc.tool_name,
-                            "arguments": json.dumps(tc.tool_args),
+                            "arguments": json_dumps(tc.tool_args),
                         },
                     }
                     for tc in content.tool_calls

@@ -50,6 +50,12 @@ def _load_api_key() -> str:
 async def _transform_stream(result: openai.AsyncStream) -> list[dict[str, Any]]:
     """Replica of entity.py::_transform_stream, collecting yielded deltas.
 
+    MAINTENANCE NOTE: this is a deliberate copy so the script runs without
+    Home Assistant installed. It intentionally OMITS two behaviours of the
+    real implementation: reasoning_content (thinking) deltas and usage
+    capture from the include_usage final chunk. If you change tool-call
+    assembly or finish_reason handling in entity.py, mirror it here.
+
     Returns the list of delta dicts that would be yielded to HA's ChatLog:
     {"content": "..."} for text and {"tool_calls": [...]} for tool calls.
     """

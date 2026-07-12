@@ -18,7 +18,6 @@ from homeassistant.components.stt import (
     SpeechResultState,
     SpeechToTextEntity,
 )
-from homeassistant.config_entries import ConfigSubentry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -27,6 +26,16 @@ from .entity import LiteLLMBaseLLMEntity
 
 if TYPE_CHECKING:
     from . import LiteLLMConfigEntry
+
+# Whisper is multilingual — languages officially supported by the API.
+SUPPORTED_LANGUAGES = [
+    "af", "ar", "az", "be", "bg", "bs", "ca", "cs", "cy", "da", "de",
+    "el", "en", "es", "et", "fa", "fi", "fr", "gl", "he", "hi", "hr",
+    "hu", "hy", "id", "is", "it", "ja", "kk", "kn", "ko", "lt", "lv",
+    "mi", "mk", "mr", "ms", "ne", "nl", "no", "pl", "pt", "ro", "ru",
+    "sk", "sl", "sr", "sv", "sw", "ta", "th", "tl", "tr", "uk", "ur",
+    "vi", "zh",
+]  # fmt: skip
 
 
 async def async_setup_entry(
@@ -67,72 +76,10 @@ def _wav_header(audio_len: int, sample_rate: int, channels: int, bit_rate: int) 
 class LiteLLMSTTEntity(SpeechToTextEntity, LiteLLMBaseLLMEntity):
     """LiteLLM speech-to-text entity (Whisper-compatible)."""
 
-    def __init__(self, entry: LiteLLMConfigEntry, subentry: ConfigSubentry) -> None:
-        """Initialize the STT entity."""
-        super().__init__(entry, subentry)
-
     @property
     def supported_languages(self) -> list[str]:
         """Return a list of supported languages (Whisper is multilingual)."""
-        return [
-            "af",
-            "ar",
-            "az",
-            "be",
-            "bg",
-            "bs",
-            "ca",
-            "cs",
-            "cy",
-            "da",
-            "de",
-            "el",
-            "en",
-            "es",
-            "et",
-            "fa",
-            "fi",
-            "fr",
-            "gl",
-            "he",
-            "hi",
-            "hr",
-            "hu",
-            "hy",
-            "id",
-            "is",
-            "it",
-            "ja",
-            "kk",
-            "kn",
-            "ko",
-            "lt",
-            "lv",
-            "mi",
-            "mk",
-            "mr",
-            "ms",
-            "ne",
-            "nl",
-            "no",
-            "pl",
-            "pt",
-            "ro",
-            "ru",
-            "sk",
-            "sl",
-            "sr",
-            "sv",
-            "sw",
-            "ta",
-            "th",
-            "tl",
-            "tr",
-            "uk",
-            "ur",
-            "vi",
-            "zh",
-        ]
+        return SUPPORTED_LANGUAGES
 
     @property
     def supported_formats(self) -> list[AudioFormats]:
@@ -163,9 +110,10 @@ class LiteLLMSTTEntity(SpeechToTextEntity, LiteLLMBaseLLMEntity):
         self, metadata: SpeechMetadata, stream: AsyncIterable[bytes]
     ) -> SpeechResult:
         """Transcribe an audio stream via the LiteLLM proxy."""
-        audio = b""
+        buffer = bytearray()
         async for chunk in stream:
-            audio += chunk
+            buffer.extend(chunk)
+        audio = bytes(buffer)
 
         if not audio:
             return SpeechResult(None, SpeechResultState.ERROR)

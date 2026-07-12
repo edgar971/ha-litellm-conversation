@@ -6,7 +6,6 @@ from json import JSONDecodeError
 from typing import override
 
 from homeassistant.components import ai_task, conversation
-from homeassistant.config_entries import ConfigSubentry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -38,10 +37,6 @@ class LiteLLMAITaskEntity(
     """LiteLLM AI Task entity."""
 
     _attr_supported_features = ai_task.AITaskEntityFeature.GENERATE_DATA
-
-    def __init__(self, entry: LiteLLMConfigEntry, subentry: ConfigSubentry) -> None:
-        """Initialize the entity."""
-        super().__init__(entry, subentry)
 
     @override
     async def _async_generate_data(

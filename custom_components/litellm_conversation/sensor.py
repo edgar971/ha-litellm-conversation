@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import (
-    SensorEntity,
+    RestoreSensor,
     SensorStateClass,
 )
 from homeassistant.core import HomeAssistant, callback
@@ -13,6 +13,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_time_change
+from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN, SIGNAL_USAGE_UPDATED
 
@@ -36,8 +37,13 @@ async def async_setup_entry(
     )
 
 
-class LiteLLMUsageSensor(SensorEntity):
-    """Counter sensor for LiteLLM usage, resetting daily at midnight."""
+class LiteLLMUsageSensor(RestoreSensor):
+    """Counter sensor for LiteLLM usage, resetting daily at midnight.
+
+    State is restored across HA restarts (RestoreSensor) so a midday
+    restart doesn't zero the daily counters — which would also corrupt
+    long-term statistics for a TOTAL_INCREASING sensor.
+    """
 
     _attr_has_entity_name = True
     _attr_should_poll = False
@@ -60,6 +66,20 @@ class LiteLLMUsageSensor(SensorEntity):
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to usage updates and the midnight reset."""
+        await super().async_added_to_hass()
+
+        # Restore the previous value unless it is from an earlier day
+        # (in which case the midnight reset it missed applies now).
+        if (last_data := await self.async_get_last_sensor_data()) is not None and (
+            last_state := await self.async_get_last_state()
+        ) is not None:
+            last_updated = dt_util.as_local(last_state.last_updated)
+            if last_updated.date() == dt_util.now().date():
+                try:
+                    self._attr_native_value = int(last_data.native_value or 0)
+                except (TypeError, ValueError):
+                    self._attr_native_value = 0
+
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass,

@@ -320,9 +320,7 @@ def _build_conversation_schema(
             ): BooleanSelector(),
             vol.Optional(
                 CONF_WEB_SEARCH_CONTEXT_SIZE,
-                default=defaults.get(
-                    CONF_WEB_SEARCH_CONTEXT_SIZE, DEFAULT_WEB_SEARCH_CONTEXT_SIZE
-                ),
+                default=defaults.get(CONF_WEB_SEARCH_CONTEXT_SIZE, DEFAULT_WEB_SEARCH_CONTEXT_SIZE),
             ): SelectSelector(
                 SelectSelectorConfig(
                     options=[
@@ -332,9 +330,7 @@ def _build_conversation_schema(
                     mode=SelectSelectorMode.DROPDOWN,
                 )
             ),
-            vol.Optional(
-                CONF_GUARDRAILS, default=defaults.get(CONF_GUARDRAILS, "")
-            ): str,
+            vol.Optional(CONF_GUARDRAILS, default=defaults.get(CONF_GUARDRAILS, "")): str,
             vol.Optional(
                 CONF_LLM_HASS_API,
                 default=defaults.get(CONF_LLM_HASS_API, ""),
@@ -552,9 +548,7 @@ def _build_tts_schema(
                 default=defaults.get(CONF_TTS_VOICE, DEFAULT_TTS_VOICE),
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=[
-                        SelectOptionDict(value=v, label=v.capitalize()) for v in TTS_VOICES
-                    ],
+                    options=[SelectOptionDict(value=v, label=v.capitalize()) for v in TTS_VOICES],
                     custom_value=True,
                     mode=SelectSelectorMode.DROPDOWN,
                 )
@@ -590,9 +584,7 @@ class LiteLLMSTTSubentryFlowHandler(ConfigSubentryFlow):
         if user_input is not None:
             data = dict(user_input)
             title = data.pop("name", "") or subentry.title
-            return self.async_update_and_abort(
-                self._get_entry(), subentry, title=title, data=data
-            )
+            return self.async_update_and_abort(self._get_entry(), subentry, title=title, data=data)
 
         entry = self._get_entry()
         models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
@@ -630,9 +622,7 @@ class LiteLLMTTSSubentryFlowHandler(ConfigSubentryFlow):
         if user_input is not None:
             data = dict(user_input)
             title = data.pop("name", "") or subentry.title
-            return self.async_update_and_abort(
-                self._get_entry(), subentry, title=title, data=data
-            )
+            return self.async_update_and_abort(self._get_entry(), subentry, title=title, data=data)
 
         entry = self._get_entry()
         models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])

@@ -68,9 +68,7 @@ class LiteLLMUsageSensor(SensorEntity):
             )
         )
         self.async_on_remove(
-            async_track_time_change(
-                self.hass, self._handle_midnight, hour=0, minute=0, second=0
-            )
+            async_track_time_change(self.hass, self._handle_midnight, hour=0, minute=0, second=0)
         )
 
     @callback

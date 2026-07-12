@@ -74,9 +74,7 @@ class LiteLLMTTSEntity(TextToSpeechEntity, LiteLLMBaseLLMEntity):
     ) -> TtsAudioType:
         """Generate speech audio via the LiteLLM proxy."""
         model = self.subentry.data.get(CONF_TTS_MODEL, DEFAULT_TTS_MODEL)
-        voice = options.get(
-            ATTR_VOICE, self.subentry.data.get(CONF_TTS_VOICE, DEFAULT_TTS_VOICE)
-        )
+        voice = options.get(ATTR_VOICE, self.subentry.data.get(CONF_TTS_VOICE, DEFAULT_TTS_VOICE))
 
         try:
             response = await self.client.audio.speech.create(

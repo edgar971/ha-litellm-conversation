@@ -298,9 +298,7 @@ class LiteLLMBaseLLMEntity(Entity):
 
         # LiteLLM proxy guardrails (comma-separated names -> list body param).
         if guardrails:
-            extra_body["guardrails"] = [
-                g.strip() for g in guardrails.split(",") if g.strip()
-            ]
+            extra_body["guardrails"] = [g.strip() for g in guardrails.split(",") if g.strip()]
 
         for _iteration in range(max_iterations):
             LOGGER.debug(

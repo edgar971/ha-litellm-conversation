@@ -6,7 +6,9 @@ rules:
   appropriate-polling:
     status: exempt
     comment: No polling; requests are made on demand per conversation turn.
-  brands: todo
+  brands:
+    status: done
+    comment: Local brand assets shipped at custom_components/litellm_conversation/brand/.
   common-modules: done
   config-flow-test-coverage: done
   config-flow: done
@@ -45,4 +47,4 @@ rules:
     status: exempt
     comment: No polling entities.
   reauthentication-flow: done
-  test-coverage: todo
+  test-coverage: done

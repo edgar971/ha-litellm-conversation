@@ -1,54 +1,29 @@
 # ha-litellm-conversation — Next Steps Plan
 
-## Current State (v1.0.1)
-- ✅ Config flow (URL + API key, validates via /v1/models)
-- ✅ Conversation agent (streaming, tool calling via Responses API)
+## Current State (v1.3.x)
+
+- ✅ Config flow (URL + API key, validates via /v1/models; reauth + reconfigure; masked key inputs)
+- ✅ Conversation agent (streaming, tool calling, reasoning/thinking content via Chat Completions)
 - ✅ AI Task entity (GenDataTask with structured output)
-- ✅ HACS distribution working
-- ✅ Inheritance fixed to match HA 2026.6 patterns
+- ✅ STT platform (Whisper-compatible /v1/audio/transcriptions)
+- ✅ TTS platform (/v1/audio/speech, 9 OpenAI voices)
+- ✅ Usage sensors (4 daily diagnostic counters, restart-safe via RestoreSensor)
+- ✅ Web search + guardrails passthrough, reasoning effort (body param)
+- ✅ Extended Tools LLM API (call_service w/ domain blocklist + response data, get_history, fetch_url w/ SSRF guard)
+- ✅ Diagnostics (redacted), dev container, pytest suite (60 tests), CI (lint + tests + hassfest + HACS)
+- ✅ HACS distribution working, tagged releases
 
-## Phase A: Local Development Setup
-1. Add `devcontainer.json` for VS Code dev container development
-2. Add a `scripts/develop` script that:
-   - Symlinks `custom_components/litellm_conversation` into a local HA dev instance
-   - Starts HA with `hass -c config/` pointing at a test config
-3. Add `pytest` setup with `pytest-homeassistant-custom-component`
-4. Add `ruff.toml` with HA-matching settings
-5. Add GitHub Actions CI (lint + test on push)
+## Remaining Ideas (rough priority)
 
-## Phase B: Improved Config & Settings
-1. **Reconfigure flow** — allow editing base_url/api_key after initial setup
-2. **Options flow for subentries** — edit model/temperature/prompt without removing
-3. **Dynamic model refresh** — re-fetch /v1/models when opening subentry options
-4. **Error translation keys** — improve error messages shown in UI
-5. **Diagnostics** — add `diagnostics.py` for HA diagnostics download (redact API key)
+1. **Submit to HACS default repositories** — repo shape is ready (CI, releases, brand assets)
+2. **Attachments support** in AI Task (images/files to vision models)
+3. **Generate Image** support (ai_task.AITaskEntityFeature.GENERATE_IMAGE)
+4. **Cache-hit indicator** — surface LiteLLM cache metadata (debug log or attribute)
+5. **`create_automation` extended tool** — powerful but risky; needs careful guardrails
+6. **Streaming TTS** — revisit when LiteLLM realtime support matures
 
-## Phase C: Better Logging & Debugging
-1. Add proper `logging.getLogger(__name__)` throughout
-2. Log model used, token count, and latency for each request
-3. Log tool call sequences at debug level
-4. Surface LiteLLM response headers (x-litellm-model-id, x-litellm-cache-hit) as debug info
-5. Add `sensor` platform for usage tracking (requests/tokens per hour — optional entity)
+Deliberately skipped: code interpreter (Responses-API-only; repo uses Chat
+Completions for Bedrock compatibility), client-side model fallback (LiteLLM
+proxy handles this server-side).
 
-## Phase D: Feature Parity with OpenAI Integration
-1. **Reasoning effort** support (pass through for o-series models)
-2. **Web search tool** passthrough
-3. **Attachments support** in AI Task (images, files)
-4. **Generate Image** support (ai_task.AITaskEntityFeature.GENERATE_IMAGE)
-5. **Streaming TTS** consideration (if LiteLLM supports it)
-6. **Store responses** option (LiteLLM's response storage)
-
-## Phase E: Documentation & Polish
-1. Comprehensive README with:
-   - Installation instructions
-   - Configuration screenshots
-   - Supported features matrix
-   - Troubleshooting guide
-2. Add CHANGELOG.md
-3. Add CONTRIBUTING.md
-4. Submit to HACS default repositories
-
-## Priority Order
-Start with Phase A (dev setup) since it unblocks faster iteration on everything else.
-Then Phase B (settings) and C (logging) in parallel since those address the immediate ask.
-Phase D adds features. Phase E polishes for public release.
+See FEATURE_IDEAS.md for the full research notes behind these.

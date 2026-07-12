@@ -1,5 +1,10 @@
 # ha-litellm-conversation — Implementation Plan
 
+> **⚠️ Historical document** — this was the original build plan. The
+> implementation has since diverged (notably: **Chat Completions** instead of
+> the Responses API, for Bedrock compatibility). See README.md and
+> NEXT_STEPS.md for current state.
+
 ## Executive Summary
 
 A Home Assistant custom integration that connects to any **LiteLLM proxy** and registers as both a **Conversation agent** and **AI Task provider**. Uses the OpenAI Python SDK's **Responses API** (`/v1/responses`) — which LiteLLM v1.82.6+ fully supports — making it a configurable-`base_url` fork of HA's built-in `openai_conversation`.

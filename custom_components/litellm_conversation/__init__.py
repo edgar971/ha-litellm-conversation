@@ -12,6 +12,7 @@ from homeassistant.helpers.httpx_client import get_async_client
 
 from .const import CONF_BASE_URL, LOGGER
 from .const import DOMAIN as DOMAIN
+from .extended_tools import async_register_extended_api
 
 PLATFORMS = (
     Platform.CONVERSATION,
@@ -47,6 +48,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> b
         raise ConfigEntryNotReady(err) from err
 
     entry.runtime_data = client
+
+    async_register_extended_api(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

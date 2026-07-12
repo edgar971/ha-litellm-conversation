@@ -29,6 +29,9 @@ from homeassistant.helpers.selector import (
     SelectSelectorConfig,
     SelectSelectorMode,
     TemplateSelector,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
 )
 
 from .const import (
@@ -58,6 +61,8 @@ from .const import (
     TTS_VOICES,
     WEB_SEARCH_CONTEXT_OPTIONS,
 )
+
+API_KEY_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 
 
 async def _get_models(hass, base_url: str, api_key: str) -> list[str]:
@@ -134,7 +139,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_BASE_URL): str,
-                    vol.Required(CONF_API_KEY): str,
+                    vol.Required(CONF_API_KEY): API_KEY_SELECTOR,
                 }
             ),
             errors=errors,
@@ -205,7 +210,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=vol.Schema({vol.Required(CONF_API_KEY): str}),
+            data_schema=vol.Schema({vol.Required(CONF_API_KEY): API_KEY_SELECTOR}),
             description_placeholders={CONF_BASE_URL: entry.data[CONF_BASE_URL]},
             errors=errors,
         )
@@ -240,14 +245,13 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
 
         current_base_url = entry.data.get(CONF_BASE_URL, "") if entry else ""
-        current_api_key = entry.data.get(CONF_API_KEY, "") if entry else ""
 
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_BASE_URL, default=current_base_url): str,
-                    vol.Required(CONF_API_KEY, default=current_api_key): str,
+                    vol.Required(CONF_API_KEY): API_KEY_SELECTOR,
                 }
             ),
             errors=errors,

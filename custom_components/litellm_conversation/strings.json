@@ -22,7 +22,7 @@
         },
         "data_description": {
           "base_url": "The URL of your LiteLLM proxy, without the /v1 suffix",
-          "api_key": "Your LiteLLM virtual API key"
+          "api_key": "Your LiteLLM virtual API key (re-enter to confirm the change)"
         }
       },
       "reauth_confirm": {

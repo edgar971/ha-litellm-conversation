@@ -37,6 +37,26 @@ Home Assistant's [MCP integration](https://www.home-assistant.io/integrations/mc
 
 ---
 
+## 🔧 Extended Tools (power users)
+
+Selecting **LiteLLM Extended Tools** as the agent's LLM API (instead of the default Assist API) gives the model everything Assist provides **plus** three power tools:
+
+| Tool | What it does |
+| :--- | :--- |
+| `call_service` | Call any HA service (`light.turn_on`, `script.movie_night`, ...) with a full payload |
+| `get_history` | Query recorder state history for an entity (up to 7 days) |
+| `fetch_url` | HTTP GET a public URL and return the body (100 KB cap) — external APIs like weather or transit |
+
+### ⚠️ Security notes
+
+These tools intentionally give the model more reach than the Assist API. Built-in guardrails:
+
+- `call_service` refuses system domains: `homeassistant`, `hassio`, `shell_command`, `python_script`, `recorder` — a prompt-injected model cannot restart HA or run arbitrary code.
+- `fetch_url` only accepts `http`/`https` and **blocks URLs resolving to private, loopback, or link-local addresses** (SSRF guard) — the model cannot probe your LAN, the Supervisor API, or your router.
+- `call_service` is still powerful: it can operate locks, garage doors, and alarm panels if those services exist. Only enable Extended Tools on agents you trust with device control, and keep sensitive entities unexposed where possible.
+
+---
+
 ## 🚀 Installation
 
 ### Prerequisites

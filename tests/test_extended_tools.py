@@ -14,6 +14,7 @@ from custom_components.litellm_conversation.extended_tools import (
     ExtendedToolsAPI,
     FetchUrlTool,
     GetHistoryTool,
+    _resolve_is_private,
     async_register_extended_api,
 )
 from homeassistant.core import HomeAssistant
@@ -136,6 +137,19 @@ async def test_call_service_ha_error(hass: HomeAssistant) -> None:
     assert result == {"error": "kaboom"}
 
 
+async def test_call_service_blocked_domains(hass: HomeAssistant) -> None:
+    """System domains are refused even if the service exists."""
+    hass.services.async_register("homeassistant", "restart", lambda call: None)
+    tool = CallServiceTool()
+    for domain in ("homeassistant", "hassio", "shell_command", "python_script", "recorder"):
+        result = await tool.async_call(
+            hass,
+            _tool_input("call_service", {"domain": domain, "service": "restart"}),
+            _llm_context(),
+        )
+        assert "not allowed" in result["error"], domain
+
+
 # --- get_history ---
 
 
@@ -195,6 +209,29 @@ async def test_fetch_url_rejects_non_http(hass: HomeAssistant) -> None:
         _llm_context(),
     )
     assert result == {"error": "Only http/https URLs are allowed"}
+
+
+async def test_fetch_url_rejects_private_addresses(hass: HomeAssistant) -> None:
+    """URLs resolving to private/loopback ranges are blocked (SSRF guard)."""
+    tool = FetchUrlTool()
+    for url in (
+        "http://192.168.1.1/admin",
+        "http://127.0.0.1:8123/api",
+        "http://10.0.0.5/",
+        "http://[::1]/",
+    ):
+        result = await tool.async_call(hass, _tool_input("fetch_url", {"url": url}), _llm_context())
+        assert result == {
+            "error": "URLs resolving to private or local addresses are not allowed"
+        }, url
+
+
+def test_resolve_is_private() -> None:
+    """IP literal classification for the SSRF guard."""
+    assert _resolve_is_private("192.168.1.1") is True
+    assert _resolve_is_private("127.0.0.1") is True
+    assert _resolve_is_private("169.254.10.10") is True
+    assert _resolve_is_private("8.8.8.8") is False
 
 
 async def test_fetch_url_success(hass: HomeAssistant) -> None:

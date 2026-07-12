@@ -6,10 +6,9 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from custom_components.litellm_conversation.sensor import LiteLLMUsageSensor
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-
-from custom_components.litellm_conversation.sensor import LiteLLMUsageSensor
 
 
 def _sensor(hass: HomeAssistant) -> LiteLLMUsageSensor:

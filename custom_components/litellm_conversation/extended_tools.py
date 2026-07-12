@@ -13,7 +13,10 @@ Users opt in by selecting "LiteLLM Extended Tools" as the agent's LLM API.
 from __future__ import annotations
 
 from datetime import timedelta
+import ipaddress
+import socket
 from typing import Any
+from urllib.parse import urlparse
 
 import voluptuous as vol
 
@@ -31,6 +34,19 @@ EXTENDED_API_NAME = "LiteLLM Extended Tools"
 FETCH_URL_MAX_BYTES = 100_000
 HISTORY_MAX_HOURS = 168  # 7 days
 
+# Domains the LLM may never call services on. call_service is a power tool,
+# but a prompt-injected model must not be able to stop/restart HA, run
+# arbitrary shell commands or Python, or wipe the recorder.
+BLOCKED_SERVICE_DOMAINS = frozenset(
+    {
+        "hassio",
+        "homeassistant",
+        "python_script",
+        "recorder",
+        "shell_command",
+    }
+)
+
 
 class CallServiceTool(llm.Tool):
     """Call any Home Assistant service."""
@@ -41,7 +57,8 @@ class CallServiceTool(llm.Tool):
         "tools, e.g. 'light.turn_on' with entity_id and brightness. "
         "domain is the service domain (light, switch, script...), service is "
         "the service name (turn_on, toggle...), data is the service payload "
-        "including entity_id/area_id targets."
+        "including entity_id/area_id targets. System domains (homeassistant, "
+        "hassio, shell_command, python_script, recorder) are not allowed."
     )
     parameters = vol.Schema(
         {
@@ -58,6 +75,9 @@ class CallServiceTool(llm.Tool):
         domain = tool_input.tool_args["domain"]
         service = tool_input.tool_args["service"]
         data = tool_input.tool_args.get("data") or {}
+
+        if domain in BLOCKED_SERVICE_DOMAINS:
+            return {"error": f"Services in the {domain} domain are not allowed"}
 
         if not hass.services.has_service(domain, service):
             return {"error": f"Service {domain}.{service} does not exist"}
@@ -117,14 +137,29 @@ class GetHistoryTool(llm.Tool):
         }
 
 
+def _resolve_is_private(host: str) -> bool:
+    """Return True if host resolves only to private/loopback/link-local addresses.
+
+    Runs blocking DNS resolution — call via executor.
+    """
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except OSError:
+        # Unresolvable — let the HTTP client produce the real error.
+        return False
+    addresses = [ipaddress.ip_address(info[4][0]) for info in infos]
+    return all(addr.is_private or addr.is_loopback or addr.is_link_local for addr in addresses)
+
+
 class FetchUrlTool(llm.Tool):
     """Fetch content from an external URL."""
 
     name = "fetch_url"
     description = (
         "HTTP GET an external URL and return its body (JSON or text, "
-        "truncated to 100KB). Only http/https URLs are allowed. Use for "
-        "external APIs like weather, transit, or stock data."
+        "truncated to 100KB). Only public http/https URLs are allowed — "
+        "private/LAN addresses are blocked. Use for external APIs like "
+        "weather, transit, or stock data."
     )
     parameters = vol.Schema({vol.Required("url"): str})
 
@@ -133,8 +168,15 @@ class FetchUrlTool(llm.Tool):
     ) -> Any:
         """Fetch the URL."""
         url = tool_input.tool_args["url"]
-        if not url.startswith(("http://", "https://")):
+        parsed = urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
             return {"error": "Only http/https URLs are allowed"}
+
+        # SSRF guard: refuse URLs resolving to private/loopback ranges so the
+        # model can't probe the LAN, the HA supervisor API, or router admin
+        # pages through this tool.
+        if await hass.async_add_executor_job(_resolve_is_private, parsed.hostname):
+            return {"error": "URLs resolving to private or local addresses are not allowed"}
 
         client = get_async_client(hass)
         try:

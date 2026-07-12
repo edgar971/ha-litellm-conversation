@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator, Callable
 import json
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import openai
 import voluptuous as vol
@@ -41,6 +41,109 @@ from .const import (
 
 if TYPE_CHECKING:
     from . import LiteLLMConfigEntry
+
+
+def _build_request_params(
+    subentry_data: dict[str, Any] | Any,
+    tools: list[dict[str, Any]] | None,
+    structure_name: str | None = None,
+    structure: vol.Schema | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build (create_params, extra_body) for a Chat Completions request.
+
+    Pure function: encapsulates all provider-quirk handling (Bedrock
+    temperature/top_p exclusivity, drop_params, body-param reasoning_effort,
+    web_search_options, guardrails) so it can be unit-tested directly.
+    """
+    model = subentry_data.get(CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL)
+    temperature = subentry_data.get(CONF_TEMPERATURE)
+    top_p = subentry_data.get(CONF_TOP_P)
+    max_tokens = subentry_data.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)
+    reasoning_effort = subentry_data.get(CONF_REASONING_EFFORT)
+    web_search = subentry_data.get(CONF_WEB_SEARCH, False)
+    guardrails = subentry_data.get(CONF_GUARDRAILS, "")
+
+    create_params: dict[str, Any] = {
+        "model": model,
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "max_tokens": max_tokens,
+    }
+
+    # Only send temperature OR top_p (not both) — Bedrock rejects requests
+    # containing both. Prefer temperature; omit both when unset so the
+    # provider default applies.
+    if temperature is not None and temperature != DEFAULT_TEMPERATURE:
+        create_params["temperature"] = temperature
+        if top_p is not None and top_p != DEFAULT_TOP_P:
+            LOGGER.warning(
+                "Both temperature and top_p are set; sending only temperature "
+                "(some providers reject both)"
+            )
+    elif top_p is not None and top_p != DEFAULT_TOP_P:
+        create_params["top_p"] = top_p
+
+    if tools:
+        create_params["tools"] = tools
+
+    if structure is not None and structure_name is not None:
+        output_schema = convert(structure)
+        # Omit `strict` — not supported by Bedrock and many non-OpenAI providers.
+        create_params["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": structure_name,
+                "schema": output_schema,
+            },
+        }
+
+    # Ask the proxy to silently drop any params unsupported by the target provider.
+    extra_body: dict[str, Any] = {"drop_params": True}
+    # reasoning_effort is a LiteLLM body param (not a header); drop_params
+    # strips it for models that don't support reasoning.
+    if reasoning_effort and reasoning_effort != "none":
+        extra_body["reasoning_effort"] = reasoning_effort
+
+    # Native web search (Chat Completions web_search_options — LiteLLM
+    # translates per provider; drop_params strips it when unsupported).
+    if web_search:
+        context_size = subentry_data.get(
+            CONF_WEB_SEARCH_CONTEXT_SIZE, DEFAULT_WEB_SEARCH_CONTEXT_SIZE
+        )
+        extra_body["web_search_options"] = {"search_context_size": context_size}
+
+    # LiteLLM proxy guardrails (comma-separated names -> list body param).
+    if guardrails:
+        extra_body["guardrails"] = [g.strip() for g in guardrails.split(",") if g.strip()]
+
+    return create_params, extra_body
+
+
+# openai exception type -> (log label, translation key) for user-facing errors.
+_API_ERROR_MAP: tuple[tuple[type[openai.OpenAIError], str, str], ...] = (
+    (openai.AuthenticationError, "Authentication error", "authentication_error"),
+    (openai.RateLimitError, "Rate limit error", "rate_limit_error"),
+    (openai.APIConnectionError, "Connection error", "connection_error"),
+)
+
+
+def _raise_for_api_error(err: openai.OpenAIError, model: str) -> NoReturn:
+    """Map an openai exception to a translated HomeAssistantError and raise it."""
+    for exc_type, label, translation_key in _API_ERROR_MAP:
+        if isinstance(err, exc_type):
+            LOGGER.error("%s (model=%s): %s", label, model, err)
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key=translation_key,
+            ) from err
+    if isinstance(err, openai.APIStatusError):
+        LOGGER.error("API status error (model=%s, status=%s): %s", model, err.status_code, err)
+        raise HomeAssistantError(
+            translation_domain=DOMAIN,
+            translation_key="api_error",
+            translation_placeholders={"status_code": str(err.status_code)},
+        ) from err
+    raise err
 
 
 def _format_tool(tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None) -> dict[str, Any]:
@@ -236,69 +339,11 @@ class LiteLLMBaseLLMEntity(Entity):
                 for tool in chat_log.llm_api.tools
             ]
 
-        model = self.subentry.data.get(CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL)
-        temperature = self.subentry.data.get(CONF_TEMPERATURE)
-        top_p = self.subentry.data.get(CONF_TOP_P)
-        max_tokens = self.subentry.data.get(CONF_MAX_TOKENS, DEFAULT_MAX_TOKENS)
-        reasoning_effort = self.subentry.data.get(CONF_REASONING_EFFORT)
-        web_search = self.subentry.data.get(CONF_WEB_SEARCH, False)
-        guardrails = self.subentry.data.get(CONF_GUARDRAILS, "")
-
-        messages = _convert_content_to_messages(chat_log.content)
-
-        create_params: dict[str, Any] = {
-            "model": model,
-            "messages": messages,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-            "max_tokens": max_tokens,
-        }
-
-        # Only send temperature OR top_p (not both) — Bedrock rejects requests
-        # containing both. Prefer temperature; omit both when unset so the
-        # provider default applies.
-        if temperature is not None and temperature != DEFAULT_TEMPERATURE:
-            create_params["temperature"] = temperature
-            if top_p is not None and top_p != DEFAULT_TOP_P:
-                LOGGER.warning(
-                    "Both temperature and top_p are set; sending only temperature "
-                    "(some providers reject both)"
-                )
-        elif top_p is not None and top_p != DEFAULT_TOP_P:
-            create_params["top_p"] = top_p
-
-        if tools:
-            create_params["tools"] = tools
-
-        if structure is not None and structure_name is not None:
-            output_schema = convert(structure)
-            # Omit `strict` — not supported by Bedrock and many non-OpenAI providers.
-            create_params["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": structure_name,
-                    "schema": output_schema,
-                },
-            }
-
-        # Ask the proxy to silently drop any params unsupported by the target provider.
-        extra_body: dict[str, Any] = {"drop_params": True}
-        # reasoning_effort is a LiteLLM body param (not a header); drop_params
-        # strips it for models that don't support reasoning.
-        if reasoning_effort and reasoning_effort != "none":
-            extra_body["reasoning_effort"] = reasoning_effort
-
-        # Native web search (Chat Completions web_search_options — LiteLLM
-        # translates per provider; drop_params strips it when unsupported).
-        if web_search:
-            context_size = self.subentry.data.get(
-                CONF_WEB_SEARCH_CONTEXT_SIZE, DEFAULT_WEB_SEARCH_CONTEXT_SIZE
-            )
-            extra_body["web_search_options"] = {"search_context_size": context_size}
-
-        # LiteLLM proxy guardrails (comma-separated names -> list body param).
-        if guardrails:
-            extra_body["guardrails"] = [g.strip() for g in guardrails.split(",") if g.strip()]
+        create_params, extra_body = _build_request_params(
+            self.subentry.data, tools, structure_name, structure
+        )
+        model = create_params["model"]
+        create_params["messages"] = _convert_content_to_messages(chat_log.content)
 
         for _iteration in range(max_iterations):
             LOGGER.debug(
@@ -306,7 +351,7 @@ class LiteLLMBaseLLMEntity(Entity):
                 model,
                 create_params.get("temperature", "unset"),
                 create_params.get("top_p", "unset"),
-                max_tokens,
+                create_params["max_tokens"],
                 len(tools) if tools else 0,
             )
             t0 = time.monotonic()
@@ -315,36 +360,8 @@ class LiteLLMBaseLLMEntity(Entity):
                     **create_params,
                     extra_body=extra_body,
                 )
-            except openai.AuthenticationError as err:
-                LOGGER.error("Authentication error (model=%s): %s", model, err)
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="authentication_error",
-                ) from err
-            except openai.RateLimitError as err:
-                LOGGER.error("Rate limit error (model=%s): %s", model, err)
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="rate_limit_error",
-                ) from err
-            except openai.APIConnectionError as err:
-                LOGGER.error("Connection error (model=%s): %s", model, err)
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="connection_error",
-                ) from err
-            except openai.APIStatusError as err:
-                LOGGER.error(
-                    "API status error (model=%s, status=%s): %s",
-                    model,
-                    err.status_code,
-                    err,
-                )
-                raise HomeAssistantError(
-                    translation_domain=DOMAIN,
-                    translation_key="api_error",
-                    translation_placeholders={"status_code": str(err.status_code)},
-                ) from err
+            except openai.OpenAIError as err:
+                _raise_for_api_error(err, model)
 
             content_len_before = len(chat_log.content)
 
@@ -386,3 +403,14 @@ class LiteLLMBaseLLMEntity(Entity):
 
             # Update messages for next iteration
             create_params["messages"] = _convert_content_to_messages(chat_log.content)
+        else:
+            # Loop exhausted without the model finishing its tool workflow.
+            LOGGER.error(
+                "Tool iteration limit (%d) reached without completion (model=%s)",
+                max_iterations,
+                model,
+            )
+            raise HomeAssistantError(
+                f"LiteLLM model '{model}' did not finish after {max_iterations} tool "
+                "iterations. The conversation may be stuck in a tool-calling loop."
+            )

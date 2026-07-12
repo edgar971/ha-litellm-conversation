@@ -18,3 +18,13 @@ def test_constants_exist():
     assert CONF_BASE_URL == "base_url"
     assert CONF_CHAT_MODEL == "chat_model"
     assert MAX_TOOL_ITERATIONS == 10
+
+
+def test_normalize_base_url() -> None:
+    """Base URL normalization: trailing slashes stripped, /v1 ensured, idempotent."""
+    from custom_components.litellm_conversation.util import normalize_base_url
+
+    assert normalize_base_url("https://p.example.com") == "https://p.example.com/v1"
+    assert normalize_base_url("https://p.example.com/") == "https://p.example.com/v1"
+    assert normalize_base_url("https://p.example.com/v1") == "https://p.example.com/v1"
+    assert normalize_base_url("https://p.example.com/v1/") == "https://p.example.com/v1"

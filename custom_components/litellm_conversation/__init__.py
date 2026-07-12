@@ -13,6 +13,7 @@ from homeassistant.helpers.httpx_client import get_async_client
 from .const import CONF_BASE_URL, LOGGER
 from .const import DOMAIN as DOMAIN
 from .extended_tools import async_register_extended_api
+from .util import normalize_base_url
 
 PLATFORMS = (
     Platform.CONVERSATION,
@@ -27,11 +28,7 @@ type LiteLLMConfigEntry = ConfigEntry[openai.AsyncOpenAI]
 
 async def async_setup_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> bool:
     """Set up LiteLLM Conversation from a config entry."""
-    base_url = entry.data[CONF_BASE_URL]
-    # Normalize: strip trailing slash, ensure /v1 suffix
-    base_url = base_url.rstrip("/")
-    if not base_url.endswith("/v1"):
-        base_url = f"{base_url}/v1"
+    base_url = normalize_base_url(entry.data[CONF_BASE_URL])
 
     client = openai.AsyncOpenAI(
         api_key=entry.data[CONF_API_KEY],

@@ -57,43 +57,41 @@ from .const import (
     DEFAULT_TTS_VOICE,
     DEFAULT_WEB_SEARCH_CONTEXT_SIZE,
     DOMAIN,
+    LOGGER,
     REASONING_EFFORT_OPTIONS,
     TTS_VOICES,
     WEB_SEARCH_CONTEXT_OPTIONS,
 )
+from .util import normalize_base_url
 
 API_KEY_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 
 
-async def _get_models(hass, base_url: str, api_key: str) -> list[str]:
-    """Fetch model list from the LiteLLM proxy."""
-    normalized = base_url.rstrip("/")
-    if not normalized.endswith("/v1"):
-        normalized = f"{normalized}/v1"
-    client = openai.AsyncOpenAI(
+def _build_client(hass, base_url: str, api_key: str) -> openai.AsyncOpenAI:
+    """Create an OpenAI client for the given proxy credentials."""
+    return openai.AsyncOpenAI(
         api_key=api_key,
-        base_url=normalized,
+        base_url=normalize_base_url(base_url),
         http_client=get_async_client(hass),
     )
+
+
+async def _get_models(hass, base_url: str, api_key: str) -> list[str]:
+    """Fetch model list from the LiteLLM proxy."""
+    client = _build_client(hass, base_url, api_key)
     try:
         async with asyncio.timeout(10):
             models = await client.models.list()
         return sorted(m.id for m in models.data)
-    except Exception:
+    except Exception as err:
+        LOGGER.warning("Could not fetch model list from %s: %s", base_url, err)
         return [DEFAULT_CHAT_MODEL]
 
 
 async def _validate_connection(hass, base_url: str, api_key: str) -> dict[str, str]:
     """Validate LiteLLM proxy connection and return errors dict."""
     errors: dict[str, str] = {}
-    normalized = base_url.rstrip("/")
-    if not normalized.endswith("/v1"):
-        normalized = f"{normalized}/v1"
-    client = openai.AsyncOpenAI(
-        api_key=api_key,
-        base_url=normalized,
-        http_client=get_async_client(hass),
-    )
+    client = _build_client(hass, base_url, api_key)
     try:
         async with asyncio.timeout(10):
             await client.models.list()
@@ -101,7 +99,8 @@ async def _validate_connection(hass, base_url: str, api_key: str) -> dict[str, s
         errors["base"] = "invalid_auth"
     except (TimeoutError, openai.APIConnectionError):
         errors["base"] = "cannot_connect"
-    except Exception:
+    except Exception as err:
+        LOGGER.exception("Unexpected error validating LiteLLM proxy %s: %s", base_url, err)
         errors["base"] = "unknown"
     return errors
 

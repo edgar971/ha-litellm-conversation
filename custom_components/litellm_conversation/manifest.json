@@ -1,6 +1,7 @@
 {
   "domain": "litellm_conversation",
   "name": "LiteLLM Conversation",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@edgar971"],
   "config_flow": true,
   "dependencies": ["conversation", "ai_task", "stt", "tts"],

@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 
 import voluptuous as vol
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
 from homeassistant.helpers.httpx_client import get_async_client
@@ -83,10 +83,21 @@ class CallServiceTool(llm.Tool):
             return {"error": f"Service {domain}.{service} does not exist"}
 
         LOGGER.debug("Extended tool call_service: %s.%s data=%s", domain, service, data)
+        supports_response = (
+            hass.services.supports_response(domain, service) != SupportsResponse.NONE
+        )
         try:
-            await hass.services.async_call(domain, service, data, blocking=True)
+            response = await hass.services.async_call(
+                domain,
+                service,
+                data,
+                blocking=True,
+                return_response=supports_response,
+            )
         except (HomeAssistantError, vol.Invalid) as err:
             return {"error": str(err)}
+        if supports_response and response:
+            return {"success": True, "response": response}
         return {"success": True}
 
 
@@ -201,9 +212,8 @@ class ExtendedToolsAPI(llm.API):
 
     async def async_get_api_instance(self, llm_context: llm.LLMContext) -> llm.APIInstance:
         """Return the API instance: Assist tools + extended tools."""
-        assist_api = llm.async_get_apis(self.hass)
         assist_instance = None
-        for api in assist_api:
+        for api in llm.async_get_apis(self.hass):
             if api.id == llm.LLM_API_ASSIST:
                 assist_instance = await api.async_get_api_instance(llm_context)
                 break

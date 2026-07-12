@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import voluptuous as vol
 
 from custom_components.litellm_conversation.extended_tools import (
     EXTENDED_API_ID,
@@ -150,6 +151,26 @@ async def test_call_service_blocked_domains(hass: HomeAssistant) -> None:
         assert "not allowed" in result["error"], domain
 
 
+async def test_call_service_returns_response_data(hass: HomeAssistant) -> None:
+    """Services that support responses return their data to the model."""
+    from homeassistant.core import ServiceResponse, SupportsResponse
+
+    def _handler(call) -> ServiceResponse:
+        return {"forecast": "sunny"}
+
+    hass.services.async_register(
+        "weather", "get_forecasts", _handler, supports_response=SupportsResponse.ONLY
+    )
+    tool = CallServiceTool()
+    result = await tool.async_call(
+        hass,
+        _tool_input("call_service", {"domain": "weather", "service": "get_forecasts"}),
+        _llm_context(),
+    )
+    assert result["success"] is True
+    assert result["response"] == {"forecast": "sunny"}
+
+
 # --- get_history ---
 
 
@@ -191,7 +212,7 @@ async def test_get_history_returns_changes(hass: HomeAssistant) -> None:
 def test_get_history_hours_schema() -> None:
     """hours_ago is capped at 168 by the schema."""
     tool = GetHistoryTool()
-    with pytest.raises(Exception):  # noqa: B017 - vol.Invalid subclass
+    with pytest.raises(vol.Invalid):
         tool.parameters({"entity_id": "sensor.x", "hours_ago": 9999})
     validated = tool.parameters({"entity_id": "sensor.x", "hours_ago": "24"})
     assert validated["hours_ago"] == 24

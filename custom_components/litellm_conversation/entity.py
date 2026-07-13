@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import AsyncGenerator, Callable
 import json
+from pathlib import Path
 import time
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -13,6 +15,7 @@ from voluptuous_openapi import convert
 
 from homeassistant.components import conversation
 from homeassistant.config_entries import ConfigSubentry
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -159,13 +162,65 @@ def _format_tool(tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None)
     }
 
 
+async def async_prepare_attachment_parts(
+    hass: HomeAssistant,
+    attachments: list[conversation.Attachment],
+) -> list[dict[str, Any]]:
+    """Encode image attachments as Chat Completions image_url content parts.
+
+    Only images are supported: Bedrock (and several other providers) do not
+    reliably accept PDFs on the Chat Completions path.
+    """
+
+    def _encode(path: Path) -> str:
+        return base64.b64encode(path.read_bytes()).decode("utf-8")
+
+    parts: list[dict[str, Any]] = []
+    for attachment in attachments:
+        if not attachment.mime_type.startswith("image/"):
+            raise HomeAssistantError(
+                "Only image attachments are supported; "
+                f"{attachment.path.name} is {attachment.mime_type}"
+            )
+        b64 = await hass.async_add_executor_job(_encode, attachment.path)
+        parts.append(
+            {
+                "type": "image_url",
+                "image_url": {"url": f"data:{attachment.mime_type};base64,{b64}"},
+            }
+        )
+    return parts
+
+
 def _convert_content_to_messages(
     chat_content: list[conversation.Content],
+    last_user_attachment_parts: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Convert chat log content to Chat Completions API messages."""
-    messages: list[dict[str, Any]] = []
+    """Convert chat log content to Chat Completions API messages.
 
-    for content in chat_content:
+    If last_user_attachment_parts is provided, the attachment parts are
+    appended to the last user message as multi-part content (text part
+    first) — matching the pattern used by core's openai_conversation
+    integration. The last *user* message is targeted (not simply the last
+    message) so attachments survive tool-loop iterations, where tool results
+    are appended after the user message.
+    """
+    messages: list[dict[str, Any]] = []
+    attach_index = -1
+    if last_user_attachment_parts:
+        for index in range(len(chat_content) - 1, -1, -1):
+            content = chat_content[index]
+            if (
+                not isinstance(
+                    content,
+                    (conversation.ToolResultContent, conversation.AssistantContent),
+                )
+                and content.role == "user"
+            ):
+                attach_index = index
+                break
+
+    for index, content in enumerate(chat_content):
         if isinstance(content, conversation.ToolResultContent):
             messages.append(
                 {
@@ -194,12 +249,23 @@ def _convert_content_to_messages(
                 ]
             messages.append(msg)
         elif content.content:
-            messages.append(
-                {
-                    "role": content.role,
-                    "content": content.content,
-                }
-            )
+            if last_user_attachment_parts and index == attach_index:
+                messages.append(
+                    {
+                        "role": content.role,
+                        "content": [
+                            {"type": "text", "text": content.content},
+                            *last_user_attachment_parts,
+                        ],
+                    }
+                )
+            else:
+                messages.append(
+                    {
+                        "role": content.role,
+                        "content": content.content,
+                    }
+                )
 
     return messages
 
@@ -343,7 +409,18 @@ class LiteLLMBaseLLMEntity(Entity):
             self.subentry.data, tools, structure_name, structure
         )
         model = create_params["model"]
-        create_params["messages"] = _convert_content_to_messages(chat_log.content)
+
+        # Encode image attachments (AI Task SUPPORT_ATTACHMENTS) from the
+        # last user message; they must be re-attached on every loop iteration
+        # since messages are rebuilt from the chat log each time.
+        attachment_parts: list[dict[str, Any]] | None = None
+        last_content = chat_log.content[-1] if chat_log.content else None
+        if isinstance(last_content, conversation.UserContent) and last_content.attachments:
+            attachment_parts = await async_prepare_attachment_parts(
+                self.hass, last_content.attachments
+            )
+
+        create_params["messages"] = _convert_content_to_messages(chat_log.content, attachment_parts)
 
         for _iteration in range(max_iterations):
             LOGGER.debug(
@@ -401,8 +478,11 @@ class LiteLLMBaseLLMEntity(Entity):
             if not chat_log.unresponded_tool_results:
                 break
 
-            # Update messages for next iteration
-            create_params["messages"] = _convert_content_to_messages(chat_log.content)
+            # Update messages for next iteration (attachments must survive
+            # the rebuild or the image vanishes after the first tool call).
+            create_params["messages"] = _convert_content_to_messages(
+                chat_log.content, attachment_parts
+            )
         else:
             # Loop exhausted without the model finishing its tool workflow.
             LOGGER.error(

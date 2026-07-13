@@ -1,0 +1,28 @@
+remember:
+  name: Remember
+  description: >-
+    Save a durable fact to the assistant's long-term memory. The fact is
+    injected into future conversations with agents using the LiteLLM
+    Extended Tools API.
+  fields:
+    text:
+      name: Text
+      description: The fact to remember (max 300 characters).
+      required: true
+      example: "Contractor quote for the shed: $10,196 (Old Hickory, July 2026)"
+      selector:
+        text:
+
+forget:
+  name: Forget
+  description: >-
+    Delete long-term memories whose text contains the given fragment
+    (case-insensitive).
+  fields:
+    text:
+      name: Text
+      description: Fragment to match against stored memories.
+      required: true
+      example: "contractor quote"
+      selector:
+        text:

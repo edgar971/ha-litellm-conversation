@@ -230,5 +230,27 @@
     "api_error": {
       "message": "LiteLLM API returned status {status_code}."
     }
+  },
+  "services": {
+    "remember": {
+      "name": "Remember",
+      "description": "Save a durable fact to the assistant's long-term memory. The fact is injected into future conversations with agents using the LiteLLM Extended Tools API.",
+      "fields": {
+        "text": {
+          "name": "Text",
+          "description": "The fact to remember (max 300 characters)."
+        }
+      }
+    },
+    "forget": {
+      "name": "Forget",
+      "description": "Delete long-term memories whose text contains the given fragment (case-insensitive).",
+      "fields": {
+        "text": {
+          "name": "Text",
+          "description": "Fragment to match against stored memories."
+        }
+      }
+    }
   }
 }

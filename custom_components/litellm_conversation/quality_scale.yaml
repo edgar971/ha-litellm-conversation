@@ -1,8 +1,8 @@
 rules:
   # Bronze
   action-setup:
-    status: exempt
-    comment: Integration does not register custom service actions.
+    status: done
+    comment: remember/forget services registered in async_setup_entry via services.py.
   appropriate-polling:
     status: exempt
     comment: No polling; requests are made on demand per conversation turn.

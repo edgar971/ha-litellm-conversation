@@ -9,6 +9,7 @@ from homeassistant.const import CONF_API_KEY, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
 from homeassistant.helpers.httpx_client import get_async_client
+from homeassistant.helpers.typing import ConfigType
 
 from .const import CONF_BASE_URL, LOGGER
 from .const import DOMAIN as DOMAIN
@@ -26,6 +27,12 @@ PLATFORMS = (
 )
 
 type LiteLLMConfigEntry = ConfigEntry[openai.AsyncOpenAI]
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Set up integration-level services (entry-independent)."""
+    async_register_services(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> bool:
@@ -49,7 +56,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> b
     entry.runtime_data = client
 
     async_register_extended_api(hass, entry)
-    async_register_services(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

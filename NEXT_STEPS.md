@@ -1,6 +1,6 @@
 # ha-litellm-conversation — Next Steps Plan
 
-## Current State (v1.4.0)
+## Current State (v1.5.0)
 
 - ✅ Config flow (URL + API key, validates via /v1/models; reauth + reconfigure; masked key inputs)
 - ✅ Conversation agent (streaming, tool calling, reasoning/thinking content via Chat Completions)
@@ -12,6 +12,7 @@
 - ✅ Extended Tools LLM API: call_service (domain blocklist + response data), get_history, fetch_url (SSRF guard), **analyze_camera (nested vision call, usage-tracked), get_calendar_events, add_todo_item** — entity tools gated on exposed-to-Assist
 - ✅ Diagnostics (redacted), dev container, pytest suite (108 tests), CI (lint + tests + hassfest + HACS)
 - ✅ Entities flip unavailable on proxy connection errors (logged once per transition)
+- ✅ Long-term memory: remember/forget/list_memories tools, per-turn prompt injection, todo.*_memories management UI, remember/forget services, diagnostics export (50 memories x 300 chars cap)
 - ✅ HACS distribution working, tagged releases
 
 ## Remaining Ideas (rough priority)

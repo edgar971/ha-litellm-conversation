@@ -49,6 +49,7 @@ Selecting **LiteLLM Extended Tools** as the agent's LLM API (instead of the defa
 | `analyze_camera` | Snapshot a camera and answer a question about the image ("Is there a package by the door?") — runs a nested vision call through your LiteLLM proxy using the conversation agent's model |
 | `get_calendar_events` | Read upcoming events from a calendar entity (up to 30 days ahead) |
 | `add_todo_item` | Add an item to a to-do/shopping list ("add milk to the shopping list") |
+| `remember` / `forget` / `list_memories` | Long-term memory: durable facts that persist across conversations (see below) |
 
 ### ⚠️ Security notes
 
@@ -57,8 +58,42 @@ These tools intentionally give the model more reach than the Assist API. Built-i
 - `call_service` refuses system domains: `homeassistant`, `hassio`, `shell_command`, `python_script`, `recorder` — a prompt-injected model cannot restart HA or run arbitrary code.
 - `fetch_url` only accepts `http`/`https` and **blocks URLs resolving to private, loopback, or link-local addresses** (SSRF guard) — the model cannot probe your LAN, the Supervisor API, or your router.
 - `analyze_camera`, `get_calendar_events`, and `add_todo_item` only work with entities **exposed to Assist** — a prompt-injected model cannot look at cameras or lists you chose not to expose.
-- `analyze_camera` makes an extra model call per use (the vision request); this nested call is not yet counted by the usage sensors.
+- `analyze_camera` makes an extra model call per use (the vision request); its token usage is counted by the usage sensors.
+- Memories are injected as **reference facts, never instructions**, capped at 50 entries × 300 chars — a prompt-injected "memory" can't become a standing order, and memory growth can't silently inflate token spend.
 - `call_service` is still powerful: it can operate locks, garage doors, and alarm panels if those services exist. Only enable Extended Tools on agents you trust with device control, and keep sensitive entities unexposed where possible.
+
+---
+
+## 🧠 Long-Term Memory
+
+Agents using the Extended Tools API get **persistent memory across conversations**. Say *"remember that the water shutoff is behind the basement panel"* — weeks later, in a fresh conversation, the agent knows.
+
+**How it works:**
+
+- The model calls `remember` when you state a durable fact; stored memories are injected into every conversation's system prompt (max 50 memories, 300 chars each)
+- Storage is a local JSON file in HA's `.storage/` — nothing leaves your box
+- Say *"what do you remember?"* (`list_memories`) or *"forget the thing about the shutoff"* (`forget`)
+
+**Manage memories in the UI:** the integration creates a **`todo.*_memories`** entity — open HA's built-in **To-do lists** panel to review, edit, add, or delete everything the assistant knows. Deleting or checking off an item forgets it. Add a standard todo-list card to any dashboard to keep memories visible.
+
+**Automation-driven memories** via services:
+
+```yaml
+# Example: remember appliance service visits automatically
+automation:
+  - alias: "Remember furnace service"
+    triggers:
+      - trigger: calendar
+        entity_id: calendar.family
+        event: end
+    conditions: "{{ 'furnace' in trigger.calendar_event.summary | lower }}"
+    actions:
+      - action: litellm_conversation.remember
+        data:
+          text: "Furnace last serviced {{ now().strftime('%B %Y') }}"
+```
+
+`litellm_conversation.forget` removes memories matching a text fragment. Both services return response data (`remembered`/`removed`).
 
 ---
 

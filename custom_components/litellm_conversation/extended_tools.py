@@ -27,13 +27,16 @@ from homeassistant.helpers import llm
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, LOGGER
+from .const import CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL, DOMAIN, LOGGER
 
 EXTENDED_API_ID = f"{DOMAIN}_extended"
 EXTENDED_API_NAME = "LiteLLM Extended Tools"
 
 FETCH_URL_MAX_BYTES = 100_000
 HISTORY_MAX_HOURS = 168  # 7 days
+ANALYZE_CAMERA_MAX_TOKENS = 500
+CALENDAR_MAX_DAYS = 30
+CALENDAR_MAX_EVENTS = 50
 
 # Domains the LLM may never call services on. call_service is a power tool,
 # but a prompt-injected model must not be able to stop/restart HA, run
@@ -204,6 +207,206 @@ class FetchUrlTool(llm.Tool):
         }
 
 
+def _guard_entity(hass: HomeAssistant, entity_id: str, domain: str) -> dict[str, Any] | None:
+    """Common entity guards for entity-targeting tools.
+
+    Returns an error dict if the entity is invalid, missing, or not exposed
+    to Assist; None when the entity is OK to use. The exposure check keeps a
+    prompt-injected model from reaching entities the user chose not to
+    expose (e.g. unexposed cameras).
+    """
+    from homeassistant.components.homeassistant.exposed_entities import (
+        async_should_expose,
+    )
+
+    if not entity_id.startswith(f"{domain}."):
+        return {"error": f"entity_id must be a {domain} entity"}
+    if hass.states.get(entity_id) is None:
+        return {"error": f"Entity {entity_id} not found"}
+    if not async_should_expose(hass, "conversation", entity_id):
+        return {"error": f"Entity {entity_id} is not exposed to Assist"}
+    return None
+
+
+class AnalyzeCameraTool(llm.Tool):
+    """Snapshot a camera and answer a question about the image."""
+
+    name = "analyze_camera"
+    description = (
+        "Take a snapshot from a camera and answer a question about what it "
+        "currently shows (e.g. 'Is there a package by the front door?'). "
+        "entity_id must be a camera entity exposed to Assist; question is "
+        "what you want to know about the image."
+    )
+    parameters = vol.Schema(
+        {
+            vol.Required("entity_id"): str,
+            vol.Required("question"): str,
+        }
+    )
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        """Store the owning config entry (LiteLLM client + model config)."""
+        self._entry = entry
+
+    def _vision_model(self) -> str:
+        """Model for the nested vision call: first conversation subentry's model."""
+        for subentry in self._entry.subentries.values():
+            if subentry.subentry_type == "conversation":
+                return subentry.data.get(CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL)
+        return DEFAULT_CHAT_MODEL
+
+    async def async_call(
+        self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
+    ) -> Any:
+        """Snapshot the camera and run a one-shot vision request."""
+        import base64
+
+        from homeassistant.components import camera
+        from homeassistant.config_entries import ConfigEntryState
+
+        entity_id = tool_input.tool_args["entity_id"]
+        question = tool_input.tool_args["question"]
+
+        if error := _guard_entity(hass, entity_id, "camera"):
+            return error
+        if self._entry.state is not ConfigEntryState.LOADED:
+            return {"error": "LiteLLM config entry is not loaded"}
+
+        try:
+            image = await camera.async_get_image(hass, entity_id)
+        except HomeAssistantError as err:
+            return {"error": f"Could not get camera image: {err}"}
+
+        b64 = await hass.async_add_executor_job(
+            lambda: base64.b64encode(image.content).decode("utf-8")
+        )
+
+        model = self._vision_model()
+        LOGGER.debug("analyze_camera: %s question=%r model=%s", entity_id, question, model)
+        try:
+            response = await self._entry.runtime_data.chat.completions.create(
+                model=model,
+                max_tokens=ANALYZE_CAMERA_MAX_TOKENS,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You analyze security camera snapshots. Answer the "
+                            "question concisely based only on what the image shows."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": question},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{image.content_type};base64,{b64}"},
+                            },
+                        ],
+                    },
+                ],
+                extra_body={"drop_params": True},
+            )
+        except Exception as err:  # openai errors -> readable tool result
+            return {"error": f"Vision analysis failed: {err}"}
+
+        return {"camera": entity_id, "answer": response.choices[0].message.content}
+
+
+class GetCalendarEventsTool(llm.Tool):
+    """Read upcoming events from a calendar entity."""
+
+    name = "get_calendar_events"
+    description = (
+        "Get upcoming events from a calendar. entity_id must be a calendar "
+        "entity; days_ahead is how many days to look ahead (default 7, max 30)."
+    )
+    parameters = vol.Schema(
+        {
+            vol.Required("entity_id"): str,
+            vol.Optional("days_ahead"): vol.All(
+                vol.Coerce(int), vol.Range(min=1, max=CALENDAR_MAX_DAYS)
+            ),
+        }
+    )
+
+    async def async_call(
+        self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
+    ) -> Any:
+        """Query calendar.get_events."""
+        entity_id = tool_input.tool_args["entity_id"]
+        days = tool_input.tool_args.get("days_ahead", 7)
+
+        if error := _guard_entity(hass, entity_id, "calendar"):
+            return error
+
+        now = dt_util.now()
+        try:
+            result = await hass.services.async_call(
+                "calendar",
+                "get_events",
+                {
+                    "entity_id": entity_id,
+                    "start_date_time": now.isoformat(),
+                    "end_date_time": (now + timedelta(days=days)).isoformat(),
+                },
+                blocking=True,
+                return_response=True,
+            )
+        except (HomeAssistantError, vol.Invalid) as err:
+            return {"error": str(err)}
+
+        events = (result or {}).get(entity_id, {}).get("events", [])
+        return {
+            "calendar": entity_id,
+            "days_ahead": days,
+            "events": events[:CALENDAR_MAX_EVENTS],
+        }
+
+
+class AddTodoItemTool(llm.Tool):
+    """Add an item to a todo/shopping list."""
+
+    name = "add_todo_item"
+    description = (
+        "Add an item to a to-do or shopping list. entity_id must be a todo "
+        "entity (e.g. todo.shopping_list); item is the item text. Optional: "
+        "description, due_date (YYYY-MM-DD)."
+    )
+    parameters = vol.Schema(
+        {
+            vol.Required("entity_id"): str,
+            vol.Required("item"): str,
+            vol.Optional("description"): str,
+            vol.Optional("due_date"): str,
+        }
+    )
+
+    async def async_call(
+        self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
+    ) -> Any:
+        """Call todo.add_item."""
+        entity_id = tool_input.tool_args["entity_id"]
+        item = tool_input.tool_args["item"]
+
+        if error := _guard_entity(hass, entity_id, "todo"):
+            return error
+
+        data: dict[str, Any] = {"entity_id": entity_id, "item": item}
+        if description := tool_input.tool_args.get("description"):
+            data["description"] = description
+        if due_date := tool_input.tool_args.get("due_date"):
+            data["due_date"] = due_date
+
+        try:
+            await hass.services.async_call("todo", "add_item", data, blocking=True)
+        except (HomeAssistantError, vol.Invalid) as err:
+            return {"error": str(err)}
+        return {"success": True, "list": entity_id, "item": item}
+
+
 class ExtendedToolsAPI(llm.API):
     """LLM API bundling the built-in Assist tools with the extended tools."""
 
@@ -229,6 +432,9 @@ class ExtendedToolsAPI(llm.API):
             CallServiceTool(),
             GetHistoryTool(),
             FetchUrlTool(),
+            AnalyzeCameraTool(self._entry),
+            GetCalendarEventsTool(),
+            AddTodoItemTool(),
         ]
 
         if assist_instance is not None:
@@ -236,7 +442,10 @@ class ExtendedToolsAPI(llm.API):
                 api=self,
                 api_prompt=assist_instance.api_prompt
                 + "\nYou also have power tools: call_service (any HA service), "
-                "get_history (entity state history), fetch_url (external HTTP GET). "
+                "get_history (entity state history), fetch_url (external HTTP GET), "
+                "analyze_camera (look at a camera and answer a question), "
+                "get_calendar_events (upcoming calendar events), add_todo_item "
+                "(add to a to-do/shopping list). "
                 "Prefer the standard intent tools for simple device control.",
                 llm_context=llm_context,
                 tools=[*assist_instance.tools, *extended_tools],
@@ -248,7 +457,10 @@ class ExtendedToolsAPI(llm.API):
             api_prompt=(
                 "You can interact with Home Assistant using these tools: "
                 "call_service (any HA service), get_history (entity state "
-                "history), fetch_url (external HTTP GET)."
+                "history), fetch_url (external HTTP GET), analyze_camera "
+                "(look at a camera and answer a question), get_calendar_events "
+                "(upcoming calendar events), add_todo_item (add to a "
+                "to-do/shopping list)."
             ),
             llm_context=llm_context,
             tools=extended_tools,

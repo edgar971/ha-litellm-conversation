@@ -68,7 +68,14 @@ async def test_api_instance_without_assist(hass: HomeAssistant) -> None:
     ):
         instance = await api.async_get_api_instance(_llm_context())
     names = {tool.name for tool in instance.tools}
-    assert names == {"call_service", "get_history", "fetch_url"}
+    assert names == {
+        "call_service",
+        "get_history",
+        "fetch_url",
+        "analyze_camera",
+        "get_calendar_events",
+        "add_todo_item",
+    }
 
 
 async def test_api_instance_merges_assist_tools(hass: HomeAssistant) -> None:
@@ -303,3 +310,243 @@ async def test_fetch_url_error(hass: HomeAssistant) -> None:
         )
     assert "error" in result
     assert "connection refused" in result["error"]
+
+
+# --- new tools (v1.4.0): analyze_camera, get_calendar_events, add_todo_item ---
+
+from custom_components.litellm_conversation.extended_tools import (  # noqa: E402
+    AddTodoItemTool,
+    AnalyzeCameraTool,
+    GetCalendarEventsTool,
+    _guard_entity,
+)
+
+EXPOSE_PATH = "homeassistant.components.homeassistant.exposed_entities.async_should_expose"
+
+
+def _loaded_entry(model: str = "test-model") -> MagicMock:
+    from homeassistant.config_entries import ConfigEntryState
+
+    entry = _mock_entry()
+    entry.state = ConfigEntryState.LOADED
+    sub = MagicMock()
+    sub.subentry_type = "conversation"
+    sub.data = {"chat_model": model}
+    entry.subentries = {"sub1": sub}
+    return entry
+
+
+# --- _guard_entity ---
+
+
+async def test_guard_entity_wrong_domain(hass: HomeAssistant) -> None:
+    """Non-matching domain is rejected."""
+    result = _guard_entity(hass, "light.kitchen", "camera")
+    assert "must be a camera entity" in result["error"]
+
+
+async def test_guard_entity_missing(hass: HomeAssistant) -> None:
+    """Missing entity is rejected."""
+    result = _guard_entity(hass, "camera.nope", "camera")
+    assert "not found" in result["error"]
+
+
+async def test_guard_entity_not_exposed(hass: HomeAssistant) -> None:
+    """Entities not exposed to Assist are rejected."""
+    hass.states.async_set("camera.hidden", "idle")
+    with patch(EXPOSE_PATH, return_value=False):
+        result = _guard_entity(hass, "camera.hidden", "camera")
+    assert "not exposed" in result["error"]
+
+
+async def test_guard_entity_ok(hass: HomeAssistant) -> None:
+    """Exposed, existing, domain-matching entity passes."""
+    hass.states.async_set("camera.front", "idle")
+    with patch(EXPOSE_PATH, return_value=True):
+        assert _guard_entity(hass, "camera.front", "camera") is None
+
+
+# --- analyze_camera ---
+
+
+async def test_analyze_camera_happy_path(hass: HomeAssistant) -> None:
+    """Snapshot -> nested vision call -> answer passthrough."""
+    hass.states.async_set("camera.driveway", "idle")
+    entry = _loaded_entry()
+    completion = MagicMock()
+    completion.choices = [MagicMock(message=MagicMock(content="A red car."))]
+    entry.runtime_data.chat.completions.create = AsyncMock(return_value=completion)
+
+    image = SimpleNamespace(content=b"jpegbytes", content_type="image/jpeg")
+    tool = AnalyzeCameraTool(entry)
+    with (
+        patch(EXPOSE_PATH, return_value=True),
+        patch(
+            "homeassistant.components.camera.async_get_image",
+            AsyncMock(return_value=image),
+        ),
+    ):
+        result = await tool.async_call(
+            hass,
+            _tool_input(
+                "analyze_camera",
+                {"entity_id": "camera.driveway", "question": "What do you see?"},
+            ),
+            _llm_context(),
+        )
+
+    assert result == {"camera": "camera.driveway", "answer": "A red car."}
+    call_kwargs = entry.runtime_data.chat.completions.create.call_args.kwargs
+    assert call_kwargs["model"] == "test-model"
+    user_msg = call_kwargs["messages"][1]
+    assert user_msg["content"][0] == {"type": "text", "text": "What do you see?"}
+    assert user_msg["content"][1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+
+async def test_analyze_camera_not_exposed(hass: HomeAssistant) -> None:
+    """Unexposed cameras are refused (prompt-injection snooping guard)."""
+    hass.states.async_set("camera.secret", "idle")
+    tool = AnalyzeCameraTool(_loaded_entry())
+    with patch(EXPOSE_PATH, return_value=False):
+        result = await tool.async_call(
+            hass,
+            _tool_input("analyze_camera", {"entity_id": "camera.secret", "question": "?"}),
+            _llm_context(),
+        )
+    assert "not exposed" in result["error"]
+
+
+async def test_analyze_camera_entry_not_loaded(hass: HomeAssistant) -> None:
+    """Unloaded config entry produces an error dict, not a crash."""
+    from homeassistant.config_entries import ConfigEntryState
+
+    hass.states.async_set("camera.front", "idle")
+    entry = _loaded_entry()
+    entry.state = ConfigEntryState.NOT_LOADED
+    tool = AnalyzeCameraTool(entry)
+    with patch(EXPOSE_PATH, return_value=True):
+        result = await tool.async_call(
+            hass,
+            _tool_input("analyze_camera", {"entity_id": "camera.front", "question": "?"}),
+            _llm_context(),
+        )
+    assert "not loaded" in result["error"]
+
+
+async def test_analyze_camera_snapshot_error(hass: HomeAssistant) -> None:
+    """Camera errors surface as an error dict."""
+    hass.states.async_set("camera.front", "idle")
+    tool = AnalyzeCameraTool(_loaded_entry())
+    with (
+        patch(EXPOSE_PATH, return_value=True),
+        patch(
+            "homeassistant.components.camera.async_get_image",
+            AsyncMock(side_effect=HomeAssistantError("offline")),
+        ),
+    ):
+        result = await tool.async_call(
+            hass,
+            _tool_input("analyze_camera", {"entity_id": "camera.front", "question": "?"}),
+            _llm_context(),
+        )
+    assert "Could not get camera image" in result["error"]
+
+
+# --- get_calendar_events ---
+
+
+async def test_get_calendar_events(hass: HomeAssistant) -> None:
+    """Events come back from the calendar.get_events response service."""
+    from homeassistant.core import SupportsResponse
+
+    hass.states.async_set("calendar.family", "off")
+    events = [{"summary": "Dentist", "start": "2026-07-14T10:00:00"}]
+
+    def _handler(call):
+        return {"calendar.family": {"events": events}}
+
+    hass.services.async_register(
+        "calendar", "get_events", _handler, supports_response=SupportsResponse.ONLY
+    )
+    tool = GetCalendarEventsTool()
+    with patch(EXPOSE_PATH, return_value=True):
+        result = await tool.async_call(
+            hass,
+            _tool_input(
+                "get_calendar_events",
+                {"entity_id": "calendar.family", "days_ahead": 3},
+            ),
+            _llm_context(),
+        )
+    assert result["calendar"] == "calendar.family"
+    assert result["days_ahead"] == 3
+    assert result["events"] == events
+
+
+async def test_get_calendar_events_wrong_domain(hass: HomeAssistant) -> None:
+    """Non-calendar entity is rejected."""
+    tool = GetCalendarEventsTool()
+    result = await tool.async_call(
+        hass,
+        _tool_input("get_calendar_events", {"entity_id": "light.kitchen"}),
+        _llm_context(),
+    )
+    assert "must be a calendar entity" in result["error"]
+
+
+# --- add_todo_item ---
+
+
+async def test_add_todo_item(hass: HomeAssistant) -> None:
+    """Item is added via todo.add_item."""
+    hass.states.async_set("todo.shopping_list", "3")
+    calls = []
+    hass.services.async_register("todo", "add_item", lambda call: calls.append(call.data))
+    tool = AddTodoItemTool()
+    with patch(EXPOSE_PATH, return_value=True):
+        result = await tool.async_call(
+            hass,
+            _tool_input(
+                "add_todo_item",
+                {"entity_id": "todo.shopping_list", "item": "milk"},
+            ),
+            _llm_context(),
+        )
+    assert result == {"success": True, "list": "todo.shopping_list", "item": "milk"}
+    assert calls[0]["item"] == "milk"
+
+
+async def test_add_todo_item_optional_fields(hass: HomeAssistant) -> None:
+    """description and due_date pass through when provided."""
+    hass.states.async_set("todo.chores", "0")
+    calls = []
+    hass.services.async_register("todo", "add_item", lambda call: calls.append(call.data))
+    tool = AddTodoItemTool()
+    with patch(EXPOSE_PATH, return_value=True):
+        await tool.async_call(
+            hass,
+            _tool_input(
+                "add_todo_item",
+                {
+                    "entity_id": "todo.chores",
+                    "item": "mow lawn",
+                    "description": "back yard too",
+                    "due_date": "2026-07-20",
+                },
+            ),
+            _llm_context(),
+        )
+    assert calls[0]["description"] == "back yard too"
+    assert calls[0]["due_date"] == "2026-07-20"
+
+
+async def test_new_tools_registered_in_api(hass: HomeAssistant) -> None:
+    """The API instance includes the new tools."""
+    api = ExtendedToolsAPI(hass, _loaded_entry())
+    with patch(
+        "custom_components.litellm_conversation.extended_tools.llm.async_get_apis",
+        return_value=[],
+    ):
+        instance = await api.async_get_api_instance(_llm_context())
+    names = {tool.name for tool in instance.tools}
+    assert {"analyze_camera", "get_calendar_events", "add_todo_item"} <= names

@@ -1,0 +1,65 @@
+blueprint:
+  name: LiteLLM Nightly Dreaming
+  description: >-
+    Run the LiteLLM Conversation memory-consolidation ("dreaming") pass on a
+    schedule, and optionally notify a device with a summary of what the
+    assistant learned. Requires the LiteLLM Conversation integration v1.6.0+.
+  domain: automation
+  source_url: https://github.com/edgar971/ha-litellm-conversation/blob/main/blueprints/automation/nightly_dreaming.yaml
+  input:
+    dream_time:
+      name: Dream time
+      description: When to run the nightly dream.
+      default: "03:00:00"
+      selector:
+        time:
+    model:
+      name: Model (optional)
+      description: >-
+        Model override for the dream call — a cheap model (e.g. a Haiku-class
+        model on your proxy) is recommended. Leave empty to use the AI Task
+        subentry's model.
+      default: ""
+      selector:
+        text:
+    include_activity:
+      name: Include household activity
+      description: >-
+        Also analyze recent logbook activity (automations, presence, locks)
+        so dreams can learn household rhythms, not just conversations.
+      default: false
+      selector:
+        boolean:
+    notify_device:
+      name: Notify device (optional)
+      description: Send a summary notification when the dream learned something.
+      default: ""
+      selector:
+        device:
+          integration: mobile_app
+
+mode: single
+
+triggers:
+  - trigger: time
+    at: !input dream_time
+
+variables:
+  notify_device: !input notify_device
+
+actions:
+  - action: litellm_conversation.dream
+    data:
+      include_activity: !input include_activity
+      model: !input model
+    response_variable: dream
+  - if: "{{ notify_device != '' and (dream.added + dream.updated + dream.deleted) > 0 }}"
+    then:
+      - device_id: !input notify_device
+        domain: mobile_app
+        type: notify
+        title: "🧠 Assistant dreamed"
+        message: >-
+          Learned {{ dream.added }} new, updated {{ dream.updated }},
+          forgot {{ dream.deleted }} (from {{ dream.exchanges_analyzed }}
+          conversations, {{ dream.tokens }} tokens).

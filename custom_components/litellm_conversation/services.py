@@ -83,7 +83,7 @@ def async_register_services(hass: HomeAssistant) -> None:
         result = await async_dream(
             hass,
             entry,
-            model=call.data.get("model"),
+            model=call.data.get("model") or None,  # "" from blueprints = unset
             activity_digest=activity_digest,
             dry_run=call.data["dry_run"],
         )

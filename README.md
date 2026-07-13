@@ -95,6 +95,64 @@ automation:
 
 `litellm_conversation.forget` removes memories matching a text fragment. Both services return response data (`remembered`/`removed`).
 
+### 💤 Dreaming — background memory consolidation
+
+Beyond the explicit `remember` tool, the integration can **learn from conversations automatically**. A "dream" is one LLM call that analyzes recent conversation transcripts (and optionally household activity) against the current memory list, then adds, updates, merges, or deletes memories — the same architecture ChatGPT uses (a hot-path memory tool + background consolidation).
+
+**How it fits HA:** the integration provides the capability; *your automations* provide the schedule. There is no built-in timer.
+
+- **`litellm_conversation.dream`** service — fields: `model` (optional override; a cheap model is recommended), `include_activity` (also analyze logbook events: automations, presence, locks), `dry_run` (return proposed operations *without* applying — build review flows). Returns `added/updated/deleted/operations/tokens`.
+- **`switch.*_transcript_capture`** — dreams need material, so conversation exchanges (your text + the reply, never tool internals) are kept in a local rolling buffer (7 days / 200 exchanges, in `.storage/`). The switch pauses capture; `litellm_conversation.clear_transcripts` wipes the buffer. **HA itself never stores conversations — this buffer is the only copy, and it never leaves your box.**
+- **`sensor.*_last_dream`** — timestamp + summary attributes (added/updated/deleted/tokens).
+- **`litellm_conversation_dream_completed`** event fires on the bus with the summary — drive notifications or chained automations.
+
+**Quick start:** import the bundled blueprint for a nightly dream with an optional "what I learned" notification:
+
+[![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fedgar971%2Fha-litellm-conversation%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fnightly_dreaming.yaml)
+
+Or by hand:
+
+```yaml
+automation:
+  - alias: "Nightly dreaming"
+    triggers:
+      - trigger: time
+        at: "03:00:00"
+    actions:
+      - action: litellm_conversation.dream
+        data:
+          include_activity: true
+          model: bedrock-claude-4-5-haiku  # cheap model for nightly runs
+```
+
+**Cautious mode (review before applying):** call with `dry_run: true`, send the proposed `operations` as an actionable notification, and only call the real dream (or targeted `remember`/`forget`) after approval.
+
+### 🖥️ Memory dashboard (no custom cards needed)
+
+Everything composes from standard Lovelace cards:
+
+```yaml
+type: vertical-stack
+cards:
+  - type: todo-list
+    entity: todo.litellm_conversation_memories
+    title: 🧠 What the assistant knows
+  - type: entities
+    entities:
+      - entity: switch.litellm_conversation_transcript_capture
+        name: Transcript capture
+      - entity: sensor.litellm_conversation_last_dream
+        name: Last dream
+  - type: button
+    name: 💤 Dream now
+    icon: mdi:sleep
+    tap_action:
+      action: perform-action
+      perform_action: litellm_conversation.dream
+      data:
+        include_activity: true
+```
+
 ---
 
 ## 🚀 Installation

@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 
 import voluptuous as vol
 
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
@@ -206,9 +207,15 @@ class FetchUrlTool(llm.Tool):
 class ExtendedToolsAPI(llm.API):
     """LLM API bundling the built-in Assist tools with the extended tools."""
 
-    def __init__(self, hass: HomeAssistant) -> None:
-        """Initialize the API."""
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize the API.
+
+        The owning config entry provides the LiteLLM client (runtime_data)
+        and model configuration for tools that make nested LLM calls
+        (analyze_camera).
+        """
         super().__init__(hass=hass, id=EXTENDED_API_ID, name=EXTENDED_API_NAME)
+        self._entry = entry
 
     async def async_get_api_instance(self, llm_context: llm.LLMContext) -> llm.APIInstance:
         """Return the API instance: Assist tools + extended tools."""
@@ -248,9 +255,9 @@ class ExtendedToolsAPI(llm.API):
         )
 
 
-def async_register_extended_api(hass: HomeAssistant) -> None:
+def async_register_extended_api(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Register the extended tools API once per HA instance."""
     if any(api.id == EXTENDED_API_ID for api in llm.async_get_apis(hass)):
         return
-    llm.async_register_api(hass, ExtendedToolsAPI(hass))
+    llm.async_register_api(hass, ExtendedToolsAPI(hass, entry))
     LOGGER.info("Registered %s LLM API", EXTENDED_API_NAME)

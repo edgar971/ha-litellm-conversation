@@ -37,24 +37,31 @@ def _tool_input(name: str, args: dict) -> llm.ToolInput:
     return llm.ToolInput(tool_name=name, tool_args=args)
 
 
+def _mock_entry() -> MagicMock:
+    """Mock LiteLLM config entry (loaded, with a client and one subentry)."""
+    entry = MagicMock()
+    entry.runtime_data = MagicMock()
+    return entry
+
+
 # --- registration ---
 
 
 async def test_register_extended_api(hass: HomeAssistant) -> None:
     """Registering adds the API exactly once (idempotent)."""
-    async_register_extended_api(hass)
+    async_register_extended_api(hass, _mock_entry())
     apis = [api.id for api in llm.async_get_apis(hass)]
     assert EXTENDED_API_ID in apis
 
     # Second call must not raise or duplicate
-    async_register_extended_api(hass)
+    async_register_extended_api(hass, _mock_entry())
     apis = [api.id for api in llm.async_get_apis(hass)]
     assert apis.count(EXTENDED_API_ID) == 1
 
 
 async def test_api_instance_without_assist(hass: HomeAssistant) -> None:
     """API instance falls back to extended tools only when Assist is unavailable."""
-    api = ExtendedToolsAPI(hass)
+    api = ExtendedToolsAPI(hass, _mock_entry())
     with patch(
         "custom_components.litellm_conversation.extended_tools.llm.async_get_apis",
         return_value=[],
@@ -77,7 +84,7 @@ async def test_api_instance_merges_assist_tools(hass: HomeAssistant) -> None:
     assist_api.id = llm.LLM_API_ASSIST
     assist_api.async_get_api_instance = AsyncMock(return_value=assist_instance)
 
-    api = ExtendedToolsAPI(hass)
+    api = ExtendedToolsAPI(hass, _mock_entry())
     with patch(
         "custom_components.litellm_conversation.extended_tools.llm.async_get_apis",
         return_value=[assist_api],

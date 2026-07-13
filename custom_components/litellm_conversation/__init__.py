@@ -46,7 +46,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> b
 
     entry.runtime_data = client
 
-    async_register_extended_api(hass)
+    async_register_extended_api(hass, entry)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

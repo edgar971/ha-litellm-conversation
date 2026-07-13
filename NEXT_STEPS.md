@@ -9,18 +9,18 @@
 - ✅ TTS platform (/v1/audio/speech, 9 OpenAI voices)
 - ✅ Usage sensors (4 daily diagnostic counters, restart-safe via RestoreSensor)
 - ✅ Web search + guardrails passthrough, reasoning effort (body param)
-- ✅ Extended Tools LLM API: call_service (domain blocklist + response data), get_history, fetch_url (SSRF guard), **analyze_camera (nested vision call), get_calendar_events, add_todo_item** — entity tools gated on exposed-to-Assist
-- ✅ Diagnostics (redacted), dev container, pytest suite (79 tests), CI (lint + tests + hassfest + HACS)
+- ✅ Extended Tools LLM API: call_service (domain blocklist + response data), get_history, fetch_url (SSRF guard), **analyze_camera (nested vision call, usage-tracked), get_calendar_events, add_todo_item** — entity tools gated on exposed-to-Assist
+- ✅ Diagnostics (redacted), dev container, pytest suite (108 tests), CI (lint + tests + hassfest + HACS)
+- ✅ Entities flip unavailable on proxy connection errors (logged once per transition)
 - ✅ HACS distribution working, tagged releases
 
 ## Remaining Ideas (rough priority)
 
 1. **Submit to HACS default repositories** — repo shape is ready (CI, releases, brand assets)
 2. **Generate Image** support (ai_task.AITaskEntityFeature.GENERATE_IMAGE)
-3. **Count analyze_camera's nested vision call in the usage sensors**
-4. **Cache-hit indicator** — surface LiteLLM cache metadata (debug log or attribute)
-5. **`create_automation` extended tool** — powerful but risky; needs careful guardrails
-6. **Streaming TTS** — revisit when LiteLLM realtime support matures
+3. **Cache-hit indicator** — surface LiteLLM cache metadata (debug log or attribute)
+4. **`create_automation` extended tool** — powerful but risky; needs careful guardrails
+5. **Streaming TTS** — revisit when LiteLLM realtime support matures
 
 Deliberately skipped: code interpreter (Responses-API-only; repo uses Chat
 Completions for Bedrock compatibility), client-side model fallback (LiteLLM

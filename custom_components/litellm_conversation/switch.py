@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .const import DOMAIN
 from .transcripts import TranscriptBuffer, async_get_transcript_buffer
 
 if TYPE_CHECKING:
@@ -44,6 +45,11 @@ class LiteLLMTranscriptCaptureSwitch(SwitchEntity):
         """Initialize the switch."""
         self._buffer = buffer
         self._attr_unique_id = f"{entry.entry_id}_transcript_capture"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "LiteLLM Proxy",
+            "entry_type": "service",
+        }
 
     @property
     def is_on(self) -> bool:

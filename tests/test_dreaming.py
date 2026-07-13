@@ -224,3 +224,21 @@ async def test_dream_invalid_json_raises(hass: HomeAssistant) -> None:
 
     with pytest.raises(HomeAssistantError, match="invalid JSON"):
         await async_dream(hass, entry)
+
+
+async def test_concurrent_dreams_serialize(hass: HomeAssistant) -> None:
+    """Two overlapping dream calls queue; the second sees the advanced watermark."""
+    import asyncio
+
+    buffer = async_get_transcript_buffer(hass)
+    await buffer.async_load()
+    buffer.add_exchange("q", "a", "c")
+
+    entry = _entry([{"op": "add", "text": "one fact", "reason": "r"}])
+    results = await asyncio.gather(async_dream(hass, entry), async_dream(hass, entry))
+
+    # First dream applied the op; second found no new exchanges (no-op).
+    analyzed = sorted(r.exchanges_analyzed for r in results)
+    assert analyzed == [0, 1]
+    store = async_get_memory_store(hass)
+    assert len(store.memories) == 1

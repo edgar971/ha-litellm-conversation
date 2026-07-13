@@ -20,6 +20,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
+from .const import DOMAIN
 from .memory import SIGNAL_MEMORIES_UPDATED, MemoryStore, async_get_memory_store
 
 if TYPE_CHECKING:
@@ -54,6 +55,11 @@ class LiteLLMMemoriesTodoEntity(TodoListEntity):
         """Initialize the entity."""
         self._store = store
         self._attr_unique_id = f"{entry.entry_id}_memories"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "LiteLLM Proxy",
+            "entry_type": "service",
+        }
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to memory updates (LLM tools / services mutate the store)."""

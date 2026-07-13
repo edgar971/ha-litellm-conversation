@@ -12,6 +12,7 @@ service is called from user automations (HA is the scheduler).
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -169,7 +170,29 @@ async def async_dream(
     activity_digest: str | None = None,
     dry_run: bool = False,
 ) -> DreamResult:
-    """Run one dream: analyze new transcripts, consolidate memories."""
+    """Run one dream: analyze new transcripts, consolidate memories.
+
+    Serialized per HA instance — concurrent calls (e.g. a dashboard button
+    pressed during the nightly automation) queue rather than double-apply.
+    """
+    from .const import DOMAIN
+
+    lock = hass.data.setdefault(DOMAIN, {}).setdefault("dream_lock", asyncio.Lock())
+    async with lock:
+        return await _async_dream_locked(
+            hass, entry, model=model, activity_digest=activity_digest, dry_run=dry_run
+        )
+
+
+async def _async_dream_locked(
+    hass: HomeAssistant,
+    entry: LiteLLMConfigEntry,
+    *,
+    model: str | None = None,
+    activity_digest: str | None = None,
+    dry_run: bool = False,
+) -> DreamResult:
+    """Dream body (call via async_dream, which holds the lock)."""
     from json import JSONDecodeError
 
     from voluptuous_openapi import convert

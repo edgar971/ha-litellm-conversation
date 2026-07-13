@@ -7,14 +7,6 @@ full original research notes.
 
 ## Remaining ideas
 
-### Conversation Memory / Context Window Management
-
-Long-term memory across conversations: a `remember` tool writing to an HA
-`store`, with stored facts injected into future system prompts. No HACS
-integration does this well — a genuine differentiator. Needs design care:
-storage schema, size caps, privacy (facts live in plaintext storage),
-UI for reviewing/deleting memories.
-
 ### Custom System Prompt Templates with HA Variables
 
 The prompt field is already a `TemplateSelector`, so Jinja works today.
@@ -42,6 +34,8 @@ diagnostic attribute or debug log. Small; mostly waiting on a real need.
 ## Decided / historical
 
 - **Extended tools, web search, STT, TTS, usage sensors, guardrails**: shipped (v1.2–v1.4).
+- **Long-term memory (tools + todo UI + services)**: shipped (v1.5.0).
+- **Dreaming (background consolidation, transcript buffer, blueprint)**: shipped (v1.6.x).
 - **AI Task attachments / vision, camera-calendar-todo tools**: shipped (v1.4.0).
 - **Code interpreter**: rejected — Responses-API-only; repo uses Chat Completions for Bedrock.
 - **Model fallback**: rejected client-side — the LiteLLM proxy handles routing/fallback server-side.

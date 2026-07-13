@@ -15,6 +15,10 @@ A Home Assistant custom integration that connects any [LiteLLM proxy](https://do
 | 🗣️ **Conversation Agent** | Use any LiteLLM-backed model as your HA voice/chat assistant |
 | 🌊 **Streaming Responses** | Real-time streamed replies for a snappy assistant experience |
 | 🔧 **Tool / Function Calling** | Let the LLM control HA devices via the HA LLM API (lights, locks, scenes, etc.) |
+| 🛠️ **Extended Tools** | Optional power tools: any-service calls, history, URL fetch, camera vision, calendars, to-do lists |
+| 🧠 **Long-Term Memory** | Durable facts persist across conversations — managed from HA's To-do panel |
+| 💤 **Dreaming** | Background memory consolidation: learn from conversations automatically, on your schedule |
+| 📷 **Vision** | Image attachments for AI Tasks (camera snapshots → structured answers) and an `analyze_camera` voice tool |
 | 📊 **AI Task: generate_data** | Structured output via the `ai_task` platform — parse, classify, or generate JSON |
 | 🔑 **Custom System Prompts** | Per-subentry system prompt templates with HA template variables |
 | ⚙️ **Full Model Control** | Configure model, temperature, top-p, and max tokens per subentry |
@@ -350,24 +354,34 @@ ha-litellm-conversation/
 ├── custom_components/
 │   └── litellm_conversation/
 │       ├── __init__.py          # Integration setup, config entry load/unload
-│       ├── ai_task.py           # AI Task platform (generate_data)
+│       ├── activity.py          # Logbook activity digest (dreaming input)
+│       ├── ai_task.py           # AI Task platform (generate_data + attachments)
 │       ├── config_flow.py       # Config + subentry UI flows
 │       ├── const.py             # Constants, defaults
-│       ├── conversation.py      # Conversation agent platform
-│       ├── entity.py            # Base entity (shared OpenAI client)
+│       ├── conversation.py      # Conversation agent platform (+ transcript capture)
+│       ├── diagnostics.py       # Redacted diagnostics export
+│       ├── dreaming.py          # Background memory consolidation
+│       ├── entity.py            # Base entity, request building, streaming, attachments
+│       ├── extended_tools.py    # Extended Tools LLM API (9 tools)
+│       ├── memory.py            # Long-term memory store
+│       ├── schemas.py           # Subentry form schemas
+│       ├── sensor.py            # Usage sensors + last-dream sensor
+│       ├── services.py          # remember/forget/dream/clear_transcripts
+│       ├── stt.py               # Speech-to-text platform
+│       ├── switch.py            # Transcript capture toggle
+│       ├── todo.py              # Memories as a native to-do list
+│       ├── transcripts.py       # Rolling conversation transcript buffer
+│       ├── tts.py               # Text-to-speech platform
+│       ├── util.py              # Shared helpers
 │       ├── manifest.json        # Integration metadata
 │       ├── strings.json         # UI strings (English)
 │       └── translations/        # i18n translations
-├── tests/
-│   ├── conftest.py              # Pytest fixtures
-│   └── test_const.py            # Unit tests
-├── .devcontainer/
-│   └── devcontainer.json        # VS Code dev container config
-├── scripts/
-│   └── develop                  # Post-create setup script
-├── .github/
-│   └── workflows/
-│       └── ci.yml               # CI: ruff + pytest
+├── blueprints/
+│   └── automation/
+│       └── nightly_dreaming.yaml  # Importable nightly-dream automation
+├── tests/                       # Pytest suite (pytest-homeassistant-custom-component)
+├── .devcontainer/               # VS Code dev container config
+├── .github/workflows/ci.yml    # CI: ruff + pytest + hassfest + HACS validation
 ├── pyproject.toml               # Package metadata & test config
 ├── ruff.toml                    # Ruff linter config
 └── hacs.json                    # HACS metadata

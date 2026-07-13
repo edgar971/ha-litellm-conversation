@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 from custom_components.litellm_conversation.const import DOMAIN
 from custom_components.litellm_conversation.memory import async_get_memory_store
 from custom_components.litellm_conversation.services import async_register_services
+from custom_components.litellm_conversation.transcripts import (
+    async_get_transcript_buffer,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 
@@ -67,14 +74,6 @@ async def test_forget_service_no_match(hass: HomeAssistant) -> None:
 
 
 # --- dream + clear_transcripts services (v1.6.0) ---
-
-import json
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from custom_components.litellm_conversation.transcripts import (
-    async_get_transcript_buffer,
-)
 
 
 def _dream_entry(ops: list[dict] | None = None) -> MagicMock:

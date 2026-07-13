@@ -26,3 +26,36 @@ forget:
       example: "contractor quote"
       selector:
         text:
+
+dream:
+  name: Dream
+  description: >-
+    Run one memory-consolidation pass: analyze conversation transcripts since
+    the last dream (plus optional household activity) and add/update/delete
+    long-term memories. Call from an automation to schedule (e.g. nightly).
+  fields:
+    model:
+      name: Model
+      description: Model override for the dream call. Defaults to the AI Task subentry's model.
+      required: false
+      example: "bedrock-claude-4-5-haiku"
+      selector:
+        text:
+    include_activity:
+      name: Include activity
+      description: Also analyze recent logbook activity (automations, presence, locks).
+      required: false
+      default: false
+      selector:
+        boolean:
+    dry_run:
+      name: Dry run
+      description: Return proposed memory operations without applying them.
+      required: false
+      default: false
+      selector:
+        boolean:
+
+clear_transcripts:
+  name: Clear transcripts
+  description: Wipe the conversation transcript buffer used by dreaming.

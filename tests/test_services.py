@@ -64,3 +64,95 @@ async def test_forget_service_no_match(hass: HomeAssistant) -> None:
         await hass.services.async_call(
             DOMAIN, "forget", {"text": "never stored"}, blocking=True, return_response=True
         )
+
+
+# --- dream + clear_transcripts services (v1.6.0) ---
+
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from custom_components.litellm_conversation.transcripts import (
+    async_get_transcript_buffer,
+)
+
+
+def _dream_entry(ops: list[dict] | None = None) -> MagicMock:
+    from homeassistant.config_entries import ConfigEntryState
+
+    entry = MagicMock()
+    entry.entry_id = "entry1"
+    entry.state = ConfigEntryState.LOADED
+    sub = MagicMock()
+    sub.subentry_type = "ai_task_data"
+    sub.data = {"chat_model": "cheap-model"}
+    entry.subentries = {"s1": sub}
+    completion = MagicMock()
+    completion.choices = [
+        MagicMock(message=MagicMock(content=json.dumps({"operations": ops or []})))
+    ]
+    completion.usage = SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2)
+    entry.runtime_data.chat.completions.create = AsyncMock(return_value=completion)
+    return entry
+
+
+async def test_dream_service(hass: HomeAssistant) -> None:
+    """The dream service runs a dream against the loaded entry."""
+    buffer = async_get_transcript_buffer(hass)
+    await buffer.async_load()
+    buffer.add_exchange("the mailbox key is in the junk drawer", "Noted!", "c")
+
+    entry = _dream_entry(
+        [{"op": "add", "text": "Mailbox key is in the junk drawer", "reason": "stated"}]
+    )
+    with patch.object(hass.config_entries, "async_entries", return_value=[entry]):
+        response = await hass.services.async_call(
+            DOMAIN, "dream", {}, blocking=True, return_response=True
+        )
+
+    assert response["added"] == 1
+    assert response["exchanges_analyzed"] == 1
+
+    store = async_get_memory_store(hass)
+    assert store.memories[0].text == "Mailbox key is in the junk drawer"
+
+
+async def test_dream_service_dry_run(hass: HomeAssistant) -> None:
+    """dry_run returns ops without applying."""
+    buffer = async_get_transcript_buffer(hass)
+    await buffer.async_load()
+    buffer.add_exchange("q", "a", "c")
+
+    entry = _dream_entry([{"op": "add", "text": "proposal", "reason": "r"}])
+    with patch.object(hass.config_entries, "async_entries", return_value=[entry]):
+        response = await hass.services.async_call(
+            DOMAIN, "dream", {"dry_run": True}, blocking=True, return_response=True
+        )
+
+    assert response["dry_run"] is True
+    assert response["operations"] == [{"op": "add", "text": "proposal", "reason": "r"}]
+    store = async_get_memory_store(hass)
+    assert store.memories == []
+
+
+async def test_dream_service_no_entry(hass: HomeAssistant) -> None:
+    """No loaded entry -> clear validation error."""
+    with (
+        patch.object(hass.config_entries, "async_entries", return_value=[]),
+        pytest.raises(ServiceValidationError, match="No loaded"),
+    ):
+        await hass.services.async_call(DOMAIN, "dream", {}, blocking=True, return_response=True)
+
+
+async def test_clear_transcripts_service(hass: HomeAssistant) -> None:
+    """clear_transcripts wipes the buffer and reports the count."""
+    buffer = async_get_transcript_buffer(hass)
+    await buffer.async_load()
+    buffer.add_exchange("a", "b", "c")
+    buffer.add_exchange("d", "e", "f")
+
+    response = await hass.services.async_call(
+        DOMAIN, "clear_transcripts", {}, blocking=True, return_response=True
+    )
+    assert response == {"removed": 2}
+    assert buffer.exchange_count == 0

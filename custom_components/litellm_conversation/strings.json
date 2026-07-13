@@ -251,6 +251,28 @@
           "description": "Fragment to match against stored memories."
         }
       }
+    },
+    "dream": {
+      "name": "Dream",
+      "description": "Run one memory-consolidation pass: analyze conversation transcripts since the last dream (plus optional household activity) and add/update/delete long-term memories.",
+      "fields": {
+        "model": {
+          "name": "Model",
+          "description": "Model override for the dream call. Defaults to the AI Task subentry's model."
+        },
+        "include_activity": {
+          "name": "Include activity",
+          "description": "Also analyze recent logbook activity (automations, presence, locks)."
+        },
+        "dry_run": {
+          "name": "Dry run",
+          "description": "Return proposed memory operations without applying them."
+        }
+      }
+    },
+    "clear_transcripts": {
+      "name": "Clear transcripts",
+      "description": "Wipe the conversation transcript buffer used by dreaming."
     }
   }
 }

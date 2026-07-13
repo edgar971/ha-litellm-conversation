@@ -186,3 +186,37 @@ async def test_api_error_mapped(hass: HomeAssistant) -> None:
 def test_default_iteration_limit_is_sane() -> None:
     """Guard against reintroducing an unbounded tool loop."""
     assert 1 < MAX_TOOL_ITERATIONS <= 25
+
+
+async def test_connection_error_marks_unavailable(hass: HomeAssistant) -> None:
+    """APIConnectionError flips availability off; next success restores it."""
+    import openai
+
+    chat_log = _FakeChatLog([{"adds": 1, "unresponded": False}])
+    entity = _make_entity(hass, [openai.APIConnectionError(request=MagicMock())])
+
+    with pytest.raises(HomeAssistantError):
+        await entity._async_handle_chat_log(chat_log)
+    assert entity.available is False
+
+    # Recovery: a fresh, working request flips it back on.
+    entity.entry.runtime_data.chat.completions.create = AsyncMock(
+        return_value=_Stream([_content_chunk(), _usage_chunk()])
+    )
+    await entity._async_handle_chat_log(chat_log)
+    assert entity.available is True
+
+
+async def test_other_api_errors_do_not_mark_unavailable(hass: HomeAssistant) -> None:
+    """Auth/rate-limit errors are not availability problems."""
+    import openai
+
+    chat_log = _FakeChatLog([{"adds": 1, "unresponded": False}])
+    entity = _make_entity(
+        hass,
+        [openai.AuthenticationError("bad key", response=MagicMock(status_code=401), body=None)],
+    )
+
+    with pytest.raises(HomeAssistantError):
+        await entity._async_handle_chat_log(chat_log)
+    assert entity.available is True

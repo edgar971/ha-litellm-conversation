@@ -373,6 +373,7 @@ class LiteLLMBaseLLMEntity(Entity):
 
     _attr_has_entity_name = True
     _attr_should_poll = False
+    _attr_available = True
 
     def __init__(
         self,
@@ -389,6 +390,23 @@ class LiteLLMBaseLLMEntity(Entity):
     def client(self) -> openai.AsyncOpenAI:
         """Return the OpenAI client."""
         return self.entry.runtime_data
+
+    def _set_available(self, available: bool) -> None:
+        """Track proxy reachability; log once per transition (quality scale).
+
+        Entities are request-driven (no polling), so availability flips on
+        connection errors during actual use and recovers on the next
+        successful request.
+        """
+        if available == self._attr_available:
+            return
+        self._attr_available = available
+        if available:
+            LOGGER.info("Connection to LiteLLM proxy re-established")
+        else:
+            LOGGER.warning("LiteLLM proxy is unreachable; marking entity unavailable")
+        if self.hass is not None and self.entity_id:
+            self.async_write_ha_state()
 
     async def _async_handle_chat_log(
         self,
@@ -437,8 +455,12 @@ class LiteLLMBaseLLMEntity(Entity):
                     **create_params,
                     extra_body=extra_body,
                 )
+            except openai.APIConnectionError as err:
+                self._set_available(False)
+                _raise_for_api_error(err, model)
             except openai.OpenAIError as err:
                 _raise_for_api_error(err, model)
+            self._set_available(True)
 
             content_len_before = len(chat_log.content)
 

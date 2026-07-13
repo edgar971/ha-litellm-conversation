@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import (
     RestoreSensor,
+    SensorDeviceClass,
     SensorStateClass,
 )
 from homeassistant.core import HomeAssistant, callback
@@ -33,6 +34,7 @@ async def async_setup_entry(
             LiteLLMUsageSensor(config_entry, "tokens_today", "Tokens today"),
             LiteLLMUsageSensor(config_entry, "input_tokens_today", "Input tokens today"),
             LiteLLMUsageSensor(config_entry, "output_tokens_today", "Output tokens today"),
+            LiteLLMLastDreamSensor(config_entry),
         ]
     )
 
@@ -114,3 +116,57 @@ class LiteLLMUsageSensor(RestoreSensor):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return extra attributes."""
         return {"last_model": self._last_model}
+
+
+class LiteLLMLastDreamSensor(RestoreSensor):
+    """Timestamp of the last completed dream, with a summary in attributes."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Last dream"
+    _attr_icon = "mdi:sleep"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_should_poll = False
+
+    def __init__(self, entry: LiteLLMConfigEntry) -> None:
+        """Initialize the sensor."""
+        self.entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_last_dream"
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, entry.entry_id)},
+            "name": "LiteLLM Proxy",
+            "entry_type": "service",
+        }
+        self._summary: dict[str, Any] = {}
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state and subscribe to dream completions."""
+        await super().async_added_to_hass()
+
+        if (last_state := await self.async_get_last_state()) is not None and (
+            last_state.state not in ("unknown", "unavailable")
+        ):
+            self._attr_native_value = dt_util.parse_datetime(last_state.state)
+            self._summary = {
+                k: last_state.attributes.get(k)
+                for k in ("added", "updated", "deleted", "exchanges_analyzed", "tokens")
+                if k in last_state.attributes
+            }
+
+        @callback
+        def _dream_completed(event) -> None:
+            self._attr_native_value = dt_util.now()
+            self._summary = {
+                k: event.data.get(k)
+                for k in ("added", "updated", "deleted", "exchanges_analyzed", "tokens", "dry_run")
+            }
+            self.async_write_ha_state()
+
+        from .dreaming import EVENT_DREAM_COMPLETED
+
+        self.async_on_remove(self.hass.bus.async_listen(EVENT_DREAM_COMPLETED, _dream_completed))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the last dream's summary."""
+        return self._summary

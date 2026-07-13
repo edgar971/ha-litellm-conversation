@@ -81,3 +81,43 @@ async def test_midnight_reset(hass: HomeAssistant) -> None:
     sensor._attr_native_value = 99
     sensor._handle_midnight(None)
     assert sensor.native_value == 0
+
+
+# --- last dream sensor (v1.6.0) ---
+
+
+async def test_last_dream_sensor_updates_on_event(hass: HomeAssistant) -> None:
+    """The sensor timestamps dream completions and carries the summary."""
+    from unittest.mock import MagicMock as _MM
+
+    from custom_components.litellm_conversation.dreaming import EVENT_DREAM_COMPLETED
+    from custom_components.litellm_conversation.sensor import LiteLLMLastDreamSensor
+
+    entry = _MM()
+    entry.entry_id = "e1"
+    sensor = LiteLLMLastDreamSensor(entry)
+    sensor.hass = hass
+    sensor.entity_id = "sensor.test_last_dream"
+    # No RestoreSensor platform in a bare unit test — stub restore lookups.
+    sensor.async_get_last_state = AsyncMock(return_value=None)
+    sensor.async_get_last_sensor_data = AsyncMock(return_value=None)
+    sensor.async_write_ha_state = _MM()
+    await sensor.async_added_to_hass()
+
+    assert sensor.native_value is None
+    hass.bus.async_fire(
+        EVENT_DREAM_COMPLETED,
+        {
+            "added": 2,
+            "updated": 1,
+            "deleted": 0,
+            "exchanges_analyzed": 5,
+            "tokens": 800,
+            "dry_run": False,
+        },
+    )
+    await hass.async_block_till_done()
+
+    assert sensor.native_value is not None
+    assert sensor.extra_state_attributes["added"] == 2
+    assert sensor.extra_state_attributes["tokens"] == 800

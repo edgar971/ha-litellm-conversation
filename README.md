@@ -39,13 +39,16 @@ Home Assistant's [MCP integration](https://www.home-assistant.io/integrations/mc
 
 ## 🔧 Extended Tools (power users)
 
-Selecting **LiteLLM Extended Tools** as the agent's LLM API (instead of the default Assist API) gives the model everything Assist provides **plus** three power tools:
+Selecting **LiteLLM Extended Tools** as the agent's LLM API (instead of the default Assist API) gives the model everything Assist provides **plus** six power tools:
 
 | Tool | What it does |
 | :--- | :--- |
 | `call_service` | Call any HA service (`light.turn_on`, `script.movie_night`, ...) with a full payload |
 | `get_history` | Query recorder state history for an entity (up to 7 days) |
 | `fetch_url` | HTTP GET a public URL and return the body (100 KB cap) — external APIs like weather or transit |
+| `analyze_camera` | Snapshot a camera and answer a question about the image ("Is there a package by the door?") — runs a nested vision call through your LiteLLM proxy using the conversation agent's model |
+| `get_calendar_events` | Read upcoming events from a calendar entity (up to 30 days ahead) |
+| `add_todo_item` | Add an item to a to-do/shopping list ("add milk to the shopping list") |
 
 ### ⚠️ Security notes
 
@@ -53,6 +56,8 @@ These tools intentionally give the model more reach than the Assist API. Built-i
 
 - `call_service` refuses system domains: `homeassistant`, `hassio`, `shell_command`, `python_script`, `recorder` — a prompt-injected model cannot restart HA or run arbitrary code.
 - `fetch_url` only accepts `http`/`https` and **blocks URLs resolving to private, loopback, or link-local addresses** (SSRF guard) — the model cannot probe your LAN, the Supervisor API, or your router.
+- `analyze_camera`, `get_calendar_events`, and `add_todo_item` only work with entities **exposed to Assist** — a prompt-injected model cannot look at cameras or lists you chose not to expose.
+- `analyze_camera` makes an extra model call per use (the vision request); this nested call is not yet counted by the usage sensors.
 - `call_service` is still powerful: it can operate locks, garage doors, and alarm panels if those services exist. Only enable Extended Tools on agents you trust with device control, and keep sensitive entities unexposed where possible.
 
 ---
@@ -77,6 +82,12 @@ These tools intentionally give the model more reach than the Assist API. Built-i
 1. Download the latest release from [GitHub Releases](https://github.com/edgar971/ha-litellm-conversation/releases).
 2. Extract and copy the `custom_components/litellm_conversation` folder into your HA configuration directory under `config/custom_components/`.
 3. **Restart Home Assistant.**
+
+### Removal
+
+1. Go to **Settings → Devices & Services → LiteLLM Conversation**, open the three-dot menu on the entry, and select **Delete**.
+2. If installed via HACS: open HACS, find **LiteLLM Conversation**, three-dot menu → **Remove**. If installed manually: delete `config/custom_components/litellm_conversation/`.
+3. **Restart Home Assistant.** All entities, subentries, and usage sensors are removed with the config entry; the integration stores no other data.
 
 ---
 
@@ -114,6 +125,30 @@ Two subentries are created automatically:
 #### AI Task (generate_data) Subentry
 
 Provides the `ai_task.generate_data` action for structured output. Supports the same model/temperature/max-token options as conversation.
+
+##### 📷 Vision: image attachments
+
+AI Task entities accept **image attachments** — including live camera snapshots via `media-source://camera/...`. The image is sent to your model through the LiteLLM proxy (vision-capable model required, e.g. Claude on Bedrock):
+
+```yaml
+action: ai_task.generate_data
+data:
+  entity_id: ai_task.litellm_ai_task
+  task_name: porch check
+  instructions: Is there a package on the porch? Answer yes or no with a short reason.
+  attachments:
+    media_content_id: media-source://camera/camera.driveway
+    media_content_type: image/jpeg
+  structure:
+    package:
+      selector:
+        boolean:
+    reason:
+      selector:
+        text:
+```
+
+Only image attachments are supported (PDFs are rejected — Bedrock's Chat Completions path does not reliably accept them).
 
 ### Step 4 — Assign to Voice Assistant
 

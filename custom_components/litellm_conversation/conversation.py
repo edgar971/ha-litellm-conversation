@@ -13,6 +13,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import LiteLLMConfigEntry
 from .const import DOMAIN
 from .entity import LiteLLMBaseLLMEntity
+from .transcripts import async_get_transcript_buffer
 
 
 async def async_setup_entry(
@@ -83,5 +84,14 @@ class LiteLLMConversationEntity(
             return err.as_conversation_result()
 
         await self._async_handle_chat_log(chat_log)
+
+        # Feed the dreaming layer: capture this exchange (user text + final
+        # assistant reply, no tool internals). No-op while the transcript
+        # capture switch is off.
+        buffer = async_get_transcript_buffer(self.hass)
+        await buffer.async_load()
+        last = chat_log.content[-1] if chat_log.content else None
+        if isinstance(last, conversation.AssistantContent) and last.content:
+            buffer.add_exchange(user_input.text, last.content, chat_log.conversation_id)
 
         return conversation.async_get_result_from_chat_log(user_input, chat_log)

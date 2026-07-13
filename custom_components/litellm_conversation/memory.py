@@ -19,7 +19,8 @@ from typing import Any
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
-from homeassistant.util import dt as dt_util, ulid as ulid_util
+from homeassistant.util import dt as dt_util
+from homeassistant.util import ulid as ulid_util
 
 from .const import DOMAIN, LOGGER
 
@@ -94,9 +95,7 @@ class MemoryStore:
         if any(m.text.casefold() == text.casefold() for m in self._memories):
             raise ValueError("An identical memory already exists")
         if len(self._memories) >= MAX_MEMORIES:
-            raise ValueError(
-                f"Memory limit reached ({MAX_MEMORIES}); forget something first"
-            )
+            raise ValueError(f"Memory limit reached ({MAX_MEMORIES}); forget something first")
         memory = Memory(text=text)
         self._memories.append(memory)
         self._notify()

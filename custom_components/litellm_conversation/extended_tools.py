@@ -29,6 +29,7 @@ from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import dt as dt_util
 
 from .const import CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL, DOMAIN, LOGGER, SIGNAL_USAGE_UPDATED
+from .memory import async_get_memory_store
 
 EXTENDED_API_ID = f"{DOMAIN}_extended"
 EXTENDED_API_NAME = "LiteLLM Extended Tools"
@@ -422,6 +423,73 @@ class AddTodoItemTool(llm.Tool):
         return {"success": True, "list": entity_id, "item": item}
 
 
+class RememberTool(llm.Tool):
+    """Save a durable fact to long-term memory."""
+
+    name = "remember"
+    description = (
+        "Save a durable fact to long-term memory so it is available in "
+        "future conversations (e.g. 'the water shutoff is behind the "
+        "basement panel'). Use for stable facts the user states or asks you "
+        "to remember — not for transient chit-chat. Keep it short."
+    )
+    parameters = vol.Schema({vol.Required("text"): str})
+
+    async def async_call(
+        self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
+    ) -> Any:
+        """Store the memory."""
+        store = async_get_memory_store(hass)
+        await store.async_load()
+        try:
+            memory = store.remember(tool_input.tool_args["text"])
+        except ValueError as err:
+            return {"error": str(err)}
+        return {"success": True, "id": memory.id, "remembered": memory.text}
+
+
+class ForgetTool(llm.Tool):
+    """Remove memories matching a text fragment."""
+
+    name = "forget"
+    description = (
+        "Delete long-term memories whose text contains the given fragment "
+        "(case-insensitive). Use when the user says a remembered fact is "
+        "wrong or no longer needed."
+    )
+    parameters = vol.Schema({vol.Required("text"): str})
+
+    async def async_call(
+        self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
+    ) -> Any:
+        """Forget matching memories."""
+        store = async_get_memory_store(hass)
+        await store.async_load()
+        removed = store.forget_matching(tool_input.tool_args["text"])
+        if not removed:
+            return {"error": "No memories matched that text"}
+        return {"success": True, "removed": removed}
+
+
+class ListMemoriesTool(llm.Tool):
+    """List everything currently remembered."""
+
+    name = "list_memories"
+    description = "List all facts currently stored in long-term memory."
+    parameters = vol.Schema({})
+
+    async def async_call(
+        self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
+    ) -> Any:
+        """Return all memories."""
+        store = async_get_memory_store(hass)
+        await store.async_load()
+        return {
+            "count": len(store.memories),
+            "memories": [{"id": m.id, "text": m.text} for m in store.memories],
+        }
+
+
 class ExtendedToolsAPI(llm.API):
     """LLM API bundling the built-in Assist tools with the extended tools."""
 
@@ -443,6 +511,12 @@ class ExtendedToolsAPI(llm.API):
                 assist_instance = await api.async_get_api_instance(llm_context)
                 break
 
+        # Memories are injected fresh on every turn (this method runs
+        # per-request) so a fact remembered in turn 1 is visible in turn 2.
+        memory_store = async_get_memory_store(self.hass)
+        await memory_store.async_load()
+        memory_section = memory_store.prompt_section()
+
         extended_tools: list[llm.Tool] = [
             CallServiceTool(),
             GetHistoryTool(),
@@ -450,18 +524,28 @@ class ExtendedToolsAPI(llm.API):
             AnalyzeCameraTool(self._entry),
             GetCalendarEventsTool(),
             AddTodoItemTool(),
+            RememberTool(),
+            ForgetTool(),
+            ListMemoriesTool(),
         ]
+
+        tools_blurb = (
+            "call_service (any HA service), "
+            "get_history (entity state history), fetch_url (external HTTP GET), "
+            "analyze_camera (look at a camera and answer a question), "
+            "get_calendar_events (upcoming calendar events), add_todo_item "
+            "(add to a to-do/shopping list), remember/forget/list_memories "
+            "(long-term memory for durable facts)."
+        )
 
         if assist_instance is not None:
             return llm.APIInstance(
                 api=self,
                 api_prompt=assist_instance.api_prompt
-                + "\nYou also have power tools: call_service (any HA service), "
-                "get_history (entity state history), fetch_url (external HTTP GET), "
-                "analyze_camera (look at a camera and answer a question), "
-                "get_calendar_events (upcoming calendar events), add_todo_item "
-                "(add to a to-do/shopping list). "
-                "Prefer the standard intent tools for simple device control.",
+                + "\nYou also have power tools: "
+                + tools_blurb
+                + " Prefer the standard intent tools for simple device control."
+                + memory_section,
                 llm_context=llm_context,
                 tools=[*assist_instance.tools, *extended_tools],
                 custom_serializer=assist_instance.custom_serializer,
@@ -471,11 +555,8 @@ class ExtendedToolsAPI(llm.API):
             api=self,
             api_prompt=(
                 "You can interact with Home Assistant using these tools: "
-                "call_service (any HA service), get_history (entity state "
-                "history), fetch_url (external HTTP GET), analyze_camera "
-                "(look at a camera and answer a question), get_calendar_events "
-                "(upcoming calendar events), add_todo_item (add to a "
-                "to-do/shopping list)."
+                + tools_blurb
+                + memory_section
             ),
             llm_context=llm_context,
             tools=extended_tools,

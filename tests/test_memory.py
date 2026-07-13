@@ -111,9 +111,7 @@ async def test_persistence_roundtrip(hass: HomeAssistant) -> None:
     store = await _store(hass)
     store.remember("durable fact")
     # Flush the delayed save immediately.
-    await store._store.async_save(
-        {"memories": [m.as_dict() for m in store.memories]}
-    )
+    await store._store.async_save({"memories": [m.as_dict() for m in store.memories]})
 
     fresh = MemoryStore(hass)
     await fresh.async_load()

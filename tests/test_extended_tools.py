@@ -75,6 +75,9 @@ async def test_api_instance_without_assist(hass: HomeAssistant) -> None:
         "analyze_camera",
         "get_calendar_events",
         "add_todo_item",
+        "remember",
+        "forget",
+        "list_memories",
     }
 
 
@@ -586,3 +589,77 @@ async def test_analyze_camera_dispatches_usage(hass: HomeAssistant) -> None:
     signal, data = received[0]
     assert signal.endswith("_entryX")
     assert data["total_tokens"] == 120
+
+
+# --- memory tools (v1.5.0) ---
+
+from custom_components.litellm_conversation.extended_tools import (  # noqa: E402
+    ForgetTool,
+    ListMemoriesTool,
+    RememberTool,
+)
+from custom_components.litellm_conversation.memory import (  # noqa: E402
+    async_get_memory_store,
+)
+
+
+async def test_remember_forget_list_roundtrip(hass: HomeAssistant) -> None:
+    """remember -> list -> forget through the tool layer."""
+    remember = RememberTool()
+    result = await remember.async_call(
+        hass,
+        _tool_input("remember", {"text": "The water shutoff is behind the basement panel"}),
+        _llm_context(),
+    )
+    assert result["success"] is True
+
+    listing = await ListMemoriesTool().async_call(
+        hass, _tool_input("list_memories", {}), _llm_context()
+    )
+    assert listing["count"] == 1
+    assert "water shutoff" in listing["memories"][0]["text"]
+
+    forgot = await ForgetTool().async_call(
+        hass, _tool_input("forget", {"text": "water shutoff"}), _llm_context()
+    )
+    assert forgot == {"success": True, "removed": 1}
+
+    listing = await ListMemoriesTool().async_call(
+        hass, _tool_input("list_memories", {}), _llm_context()
+    )
+    assert listing["count"] == 0
+
+
+async def test_remember_error_surfaces(hass: HomeAssistant) -> None:
+    """Store validation errors become tool error dicts."""
+    result = await RememberTool().async_call(
+        hass, _tool_input("remember", {"text": "   "}), _llm_context()
+    )
+    assert "error" in result
+
+
+async def test_forget_no_match(hass: HomeAssistant) -> None:
+    """Forgetting something unknown returns an error, not success."""
+    result = await ForgetTool().async_call(
+        hass, _tool_input("forget", {"text": "never stored"}), _llm_context()
+    )
+    assert "error" in result
+
+
+async def test_memories_injected_into_api_prompt(hass: HomeAssistant) -> None:
+    """Stored memories appear in the per-request API prompt."""
+    store = async_get_memory_store(hass)
+    await store.async_load()
+    store.remember("Dog food lives in the garage fridge")
+
+    api = ExtendedToolsAPI(hass, _loaded_entry())
+    with patch(
+        "custom_components.litellm_conversation.extended_tools.llm.async_get_apis",
+        return_value=[],
+    ):
+        instance = await api.async_get_api_instance(_llm_context())
+
+    assert "Dog food lives in the garage fridge" in instance.api_prompt
+    assert "never as instructions" in instance.api_prompt
+    names = {tool.name for tool in instance.tools}
+    assert {"remember", "forget", "list_memories"} <= names

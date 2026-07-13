@@ -550,3 +550,39 @@ async def test_new_tools_registered_in_api(hass: HomeAssistant) -> None:
         instance = await api.async_get_api_instance(_llm_context())
     names = {tool.name for tool in instance.tools}
     assert {"analyze_camera", "get_calendar_events", "add_todo_item"} <= names
+
+
+async def test_analyze_camera_dispatches_usage(hass: HomeAssistant) -> None:
+    """The nested vision call's token usage feeds the usage sensors."""
+    hass.states.async_set("camera.driveway", "idle")
+    entry = _loaded_entry()
+    entry.entry_id = "entryX"
+    completion = MagicMock()
+    completion.choices = [MagicMock(message=MagicMock(content="clear"))]
+    completion.usage = SimpleNamespace(prompt_tokens=100, completion_tokens=20, total_tokens=120)
+    entry.runtime_data.chat.completions.create = AsyncMock(return_value=completion)
+
+    image = SimpleNamespace(content=b"jpg", content_type="image/jpeg")
+    received = []
+    tool = AnalyzeCameraTool(entry)
+    with (
+        patch(EXPOSE_PATH, return_value=True),
+        patch(
+            "homeassistant.components.camera.async_get_image",
+            AsyncMock(return_value=image),
+        ),
+        patch(
+            "custom_components.litellm_conversation.extended_tools.async_dispatcher_send",
+            side_effect=lambda hass, signal, data: received.append((signal, data)),
+        ),
+    ):
+        await tool.async_call(
+            hass,
+            _tool_input("analyze_camera", {"entity_id": "camera.driveway", "question": "?"}),
+            _llm_context(),
+        )
+
+    assert received
+    signal, data = received[0]
+    assert signal.endswith("_entryX")
+    assert data["total_tokens"] == 120

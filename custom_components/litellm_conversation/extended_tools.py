@@ -24,10 +24,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL, DOMAIN, LOGGER
+from .const import CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL, DOMAIN, LOGGER, SIGNAL_USAGE_UPDATED
 
 EXTENDED_API_ID = f"{DOMAIN}_extended"
 EXTENDED_API_NAME = "LiteLLM Extended Tools"
@@ -311,6 +312,20 @@ class AnalyzeCameraTool(llm.Tool):
             )
         except Exception as err:  # openai errors -> readable tool result
             return {"error": f"Vision analysis failed: {err}"}
+
+        # Feed the nested call's token usage to the usage sensors, same
+        # signal the conversation/AI Task entities use.
+        if usage := getattr(response, "usage", None):
+            async_dispatcher_send(
+                hass,
+                f"{SIGNAL_USAGE_UPDATED}_{self._entry.entry_id}",
+                {
+                    "model": model,
+                    "prompt_tokens": usage.prompt_tokens,
+                    "completion_tokens": usage.completion_tokens,
+                    "total_tokens": usage.total_tokens,
+                },
+            )
 
         return {"camera": entity_id, "answer": response.choices[0].message.content}
 

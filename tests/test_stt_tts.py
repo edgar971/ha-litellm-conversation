@@ -65,9 +65,7 @@ async def test_stt_wav_transcription() -> None:
         return_value=SimpleNamespace(text="hello world")
     )
 
-    result = await entity.async_process_audio_stream(
-        _metadata(), _stream([b"pcm1", b"pcm2"])
-    )
+    result = await entity.async_process_audio_stream(_metadata(), _stream([b"pcm1", b"pcm2"]))
 
     assert result.result is SpeechResultState.SUCCESS
     assert result.text == "hello world"
@@ -91,7 +89,9 @@ async def test_stt_ogg_passthrough() -> None:
     )
 
     assert result.result is SpeechResultState.SUCCESS
-    filename, file_data = entity.entry.runtime_data.audio.transcriptions.create.call_args.kwargs["file"]
+    filename, file_data = entity.entry.runtime_data.audio.transcriptions.create.call_args.kwargs[
+        "file"
+    ]
     assert filename == "audio.ogg"
     assert file_data == b"OggS..."
 

@@ -20,6 +20,7 @@ PLATFORMS = (
     Platform.AI_TASK,
     Platform.SENSOR,
     Platform.STT,
+    Platform.TODO,
     Platform.TTS,
 )
 

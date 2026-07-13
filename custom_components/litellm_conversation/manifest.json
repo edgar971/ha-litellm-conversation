@@ -1,10 +1,10 @@
 {
   "domain": "litellm_conversation",
   "name": "LiteLLM Conversation",
-  "after_dependencies": ["calendar", "camera", "recorder", "todo"],
+  "after_dependencies": ["calendar", "camera", "recorder"],
   "codeowners": ["@edgar971"],
   "config_flow": true,
-  "dependencies": ["conversation", "ai_task", "stt", "tts"],
+  "dependencies": ["conversation", "ai_task", "stt", "todo", "tts"],
   "documentation": "https://github.com/edgar971/ha-litellm-conversation",
   "integration_type": "service",
   "iot_class": "cloud_polling",

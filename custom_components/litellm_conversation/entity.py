@@ -90,7 +90,7 @@ def _build_request_params(
         create_params["tools"] = tools
 
     if structure is not None and structure_name is not None:
-        output_schema = convert(structure)
+        output_schema = convert(structure, custom_serializer=llm.selector_serializer)
         # Omit `strict` — not supported by Bedrock and many non-OpenAI providers.
         create_params["response_format"] = {
             "type": "json_schema",

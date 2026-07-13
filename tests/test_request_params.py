@@ -66,6 +66,26 @@ def test_structure_builds_response_format_without_strict() -> None:
     assert "strict" not in rf["json_schema"]
 
 
+def test_structure_with_ha_selectors() -> None:
+    """Selector-based structures (what ai_task.generate_data actually sends) convert.
+
+    Regression: without llm.selector_serializer, voluptuous_openapi crashes with
+    'cannot use BooleanSelector as a dict key (unhashable type)'.
+    """
+    from homeassistant.helpers import selector
+
+    schema = vol.Schema(
+        {
+            vol.Required("vehicles_visible"): selector.BooleanSelector(),
+            vol.Required("description"): selector.TextSelector(),
+        }
+    )
+    create_params, _ = _build_request_params({}, None, "driveway_check", schema)
+    props = create_params["response_format"]["json_schema"]["schema"]["properties"]
+    assert props["vehicles_visible"]["type"] == "boolean"
+    assert props["description"]["type"] == "string"
+
+
 def test_reasoning_effort_in_extra_body() -> None:
     """reasoning_effort goes in the body (header is silently ignored by proxy)."""
     _, extra_body = _build_request_params({"reasoning_effort": "low"}, None)

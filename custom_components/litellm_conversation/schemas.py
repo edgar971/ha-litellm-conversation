@@ -51,6 +51,17 @@ from .const import (
 )
 
 
+def _model_options(models: list[str], fallback: str = DEFAULT_CHAT_MODEL) -> list[SelectOptionDict]:
+    """Build model dropdown options, with a placeholder when the proxy has none.
+
+    An empty proxy model list (bad model_list config, or a transient fetch
+    failure) must not produce an empty dropdown — custom_value=True lets the
+    user type a model id manually either way, but a placeholder keeps the
+    default-selection UX working instead of showing nothing to pick.
+    """
+    return [SelectOptionDict(value=m, label=m) for m in (models or [fallback])]
+
+
 def _build_conversation_schema(
     models: list[str],
     llm_apis: list[SelectOptionDict],
@@ -66,7 +77,7 @@ def _build_conversation_schema(
                 default=defaults.get(CONF_CHAT_MODEL, models[0] if models else DEFAULT_CHAT_MODEL),
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=[SelectOptionDict(value=m, label=m) for m in models],
+                    options=_model_options(models),
                     custom_value=True,
                     mode=SelectSelectorMode.DROPDOWN,
                 )
@@ -143,7 +154,7 @@ def _build_ai_task_schema(
                 default=defaults.get(CONF_CHAT_MODEL, models[0] if models else DEFAULT_CHAT_MODEL),
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=[SelectOptionDict(value=m, label=m) for m in models],
+                    options=_model_options(models),
                     custom_value=True,
                     mode=SelectSelectorMode.DROPDOWN,
                 )
@@ -204,7 +215,7 @@ def _build_stt_schema(
                 default=defaults.get(CONF_STT_MODEL, DEFAULT_STT_MODEL),
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=[SelectOptionDict(value=m, label=m) for m in models],
+                    options=_model_options(models, fallback=DEFAULT_STT_MODEL),
                     custom_value=True,
                     mode=SelectSelectorMode.DROPDOWN,
                 )
@@ -227,7 +238,7 @@ def _build_tts_schema(
                 default=defaults.get(CONF_TTS_MODEL, DEFAULT_TTS_MODEL),
             ): SelectSelector(
                 SelectSelectorConfig(
-                    options=[SelectOptionDict(value=m, label=m) for m in models],
+                    options=_model_options(models, fallback=DEFAULT_TTS_MODEL),
                     custom_value=True,
                     mode=SelectSelectorMode.DROPDOWN,
                 )

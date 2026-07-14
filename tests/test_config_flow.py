@@ -19,9 +19,11 @@ USER_INPUT = {CONF_BASE_URL: BASE_URL, "api_key": API_KEY}
 
 
 def _mock_models_list(model_ids: list[str] | None = None) -> AsyncMock:
-    """Mock AsyncOpenAI models.list()."""
+    """Mock AsyncOpenAI models.list(). Pass [] explicitly for an empty proxy."""
     models = MagicMock()
-    models.data = [MagicMock(id=m) for m in (model_ids or ["gpt-4o-mini", "claude-x"])]
+    models.data = [
+        MagicMock(id=m) for m in (["gpt-4o-mini", "claude-x"] if model_ids is None else model_ids)
+    ]
     return AsyncMock(return_value=models)
 
 
@@ -100,6 +102,40 @@ async def test_user_flow_errors(hass: HomeAssistant, setup_ha, side_effect, expe
     assert result["errors"] == {"base": expected_error}
 
 
+async def test_user_flow_validate_connection_reused_for_models(
+    hass: HomeAssistant, setup_ha, mock_openai_ok
+) -> None:
+    """Model list comes from the same call that validates the connection (no 2nd fetch)."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+
+    assert result["step_id"] == "models"
+    # models.list was called exactly once by _validate_connection; _get_models
+    # is never invoked in this path.
+    assert mock_openai_ok.return_value.models.list.call_count == 1
+
+
+async def test_user_flow_empty_model_list_shows_placeholder_not_fake_default(
+    hass: HomeAssistant, setup_ha
+) -> None:
+    """A proxy with zero configured models gets a visible warning, not a silent fake default."""
+    with patch(
+        "custom_components.litellm_conversation.config_flow.openai.AsyncOpenAI"
+    ) as mock_client:
+        mock_client.return_value.models.list = _mock_models_list([])
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": config_entries.SOURCE_USER}
+        )
+        result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "models"
+    assert result["description_placeholders"]["model_count"].startswith("0")
+    assert "model_list" in result["description_placeholders"]["model_count"]
+
+
 async def test_reauth_flow_updates_api_key(hass: HomeAssistant, setup_ha, mock_openai_ok) -> None:
     """Reauth flow validates and stores the new API key."""
     entry = MockConfigEntry(
@@ -120,3 +156,28 @@ async def test_reauth_flow_updates_api_key(hass: HomeAssistant, setup_ha, mock_o
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reauth_successful"
     assert entry.data["api_key"] == "sk-new"
+
+
+async def test_get_models_returns_empty_on_failure(hass: HomeAssistant) -> None:
+    """_get_models returns [] (not a fake default model) when the fetch fails."""
+    from custom_components.litellm_conversation.config_flow import _get_models
+
+    with patch(
+        "custom_components.litellm_conversation.config_flow.openai.AsyncOpenAI"
+    ) as mock_client:
+        mock_client.return_value.models.list = AsyncMock(side_effect=RuntimeError("boom"))
+        models = await _get_models(hass, BASE_URL, API_KEY)
+
+    assert models == []
+
+
+async def test_schemas_model_options_placeholder_on_empty() -> None:
+    """schemas._model_options falls back to a placeholder, never an empty dropdown."""
+    from custom_components.litellm_conversation.schemas import _model_options
+
+    assert len(_model_options([])) == 1
+    assert _model_options(["a", "b"]) == [
+        {"value": "a", "label": "a"},
+        {"value": "b", "label": "b"},
+    ]
+    assert _model_options([], fallback="whisper-1")[0]["value"] == "whisper-1"

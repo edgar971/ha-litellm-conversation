@@ -37,7 +37,7 @@
       },
       "models": {
         "title": "Select Model",
-        "description": "Found {model_count} models on your LiteLLM proxy. Select a default model for conversation and AI tasks.",
+        "description": "{model_count} models found on your LiteLLM proxy. Select a default model for conversation and AI tasks.",
         "data": {
           "chat_model": "Model"
         }

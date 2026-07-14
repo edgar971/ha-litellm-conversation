@@ -11,5 +11,5 @@
   "issue_tracker": "https://github.com/edgar971/ha-litellm-conversation/issues",
   "loggers": ["openai"],
   "requirements": ["openai>=1.58.1", "voluptuous-openapi>=0.0.5"],
-  "version": "1.7.0"
+  "version": "1.7.1"
 }

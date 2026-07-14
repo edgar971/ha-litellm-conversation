@@ -58,7 +58,13 @@ def _build_client(hass, base_url: str, api_key: str) -> openai.AsyncOpenAI:
 
 
 async def _get_models(hass, base_url: str, api_key: str) -> list[str]:
-    """Fetch model list from the LiteLLM proxy."""
+    """Fetch model list from the LiteLLM proxy.
+
+    Returns an empty list on any failure or empty response — callers must
+    handle that explicitly (fall back to a placeholder AND warn the user),
+    rather than this function silently manufacturing a fake default that
+    doesn't exist on the proxy.
+    """
     client = _build_client(hass, base_url, api_key)
     try:
         async with asyncio.timeout(10):
@@ -66,16 +72,23 @@ async def _get_models(hass, base_url: str, api_key: str) -> list[str]:
         return sorted(m.id for m in models.data)
     except Exception as err:
         LOGGER.warning("Could not fetch model list from %s: %s", base_url, err)
-        return [DEFAULT_CHAT_MODEL]
+        return []
 
 
-async def _validate_connection(hass, base_url: str, api_key: str) -> dict[str, str]:
-    """Validate LiteLLM proxy connection and return errors dict."""
+async def _validate_connection(
+    hass, base_url: str, api_key: str
+) -> tuple[dict[str, str], list[str]]:
+    """Validate LiteLLM proxy connection and fetch models in one round-trip.
+
+    Returns (errors, models). Combining validation + model listing avoids a
+    second live /v1/models call immediately after the first.
+    """
     errors: dict[str, str] = {}
     client = _build_client(hass, base_url, api_key)
     try:
         async with asyncio.timeout(10):
-            await client.models.list()
+            response = await client.models.list()
+        return errors, sorted(m.id for m in response.data)
     except openai.AuthenticationError:
         errors["base"] = "invalid_auth"
     except (TimeoutError, openai.APIConnectionError):
@@ -83,7 +96,7 @@ async def _validate_connection(hass, base_url: str, api_key: str) -> dict[str, s
     except Exception as err:
         LOGGER.exception("Unexpected error validating LiteLLM proxy %s: %s", base_url, err)
         errors["base"] = "unknown"
-    return errors
+    return errors, []
 
 
 class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -105,13 +118,13 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
             base_url = user_input[CONF_BASE_URL].rstrip("/")
             api_key = user_input[CONF_API_KEY]
 
-            errors = await _validate_connection(self.hass, base_url, api_key)
+            errors, models = await _validate_connection(self.hass, base_url, api_key)
             if not errors:
                 await self.async_set_unique_id(base_url)
                 self._abort_if_unique_id_configured()
                 self._base_url = base_url
                 self._api_key = api_key
-                self._models = await _get_models(self.hass, base_url, api_key)
+                self._models = models
                 return await self.async_step_models()
 
         return self.async_show_form(
@@ -149,6 +162,16 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
             )
 
         models = self._models
+        # The proxy connected fine but returned zero models — likely a proxy
+        # config gap (no model_list entries) rather than a network/auth
+        # problem, so it wasn't caught by _validate_connection. Surface it
+        # instead of silently seeding a fake "gpt-4o-mini" that doesn't
+        # exist on the proxy and will fail on first use.
+        model_count_text = (
+            str(len(models))
+            if models
+            else "0 — check your LiteLLM proxy's model_list config; a placeholder is shown below but it will not work until you add a real model"
+        )
         return self.async_show_form(
             step_id="models",
             data_schema=vol.Schema(
@@ -158,14 +181,17 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                         default=models[0] if models else DEFAULT_CHAT_MODEL,
                     ): SelectSelector(
                         SelectSelectorConfig(
-                            options=[SelectOptionDict(value=m, label=m) for m in models],
+                            options=[
+                                SelectOptionDict(value=m, label=m)
+                                for m in (models or [DEFAULT_CHAT_MODEL])
+                            ],
                             custom_value=True,
                             mode=SelectSelectorMode.DROPDOWN,
                         )
                     ),
                 }
             ),
-            description_placeholders={"model_count": str(len(models))},
+            description_placeholders={"model_count": model_count_text},
         )
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
@@ -181,7 +207,9 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             api_key = user_input[CONF_API_KEY]
-            errors = await _validate_connection(self.hass, entry.data[CONF_BASE_URL], api_key)
+            errors, _models = await _validate_connection(
+                self.hass, entry.data[CONF_BASE_URL], api_key
+            )
             if not errors:
                 return self.async_update_reload_and_abort(
                     entry,
@@ -206,7 +234,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
             base_url = user_input[CONF_BASE_URL].rstrip("/")
             api_key = user_input[CONF_API_KEY]
 
-            errors = await _validate_connection(self.hass, base_url, api_key)
+            errors, _models = await _validate_connection(self.hass, base_url, api_key)
             if not errors:
                 # Abort only if a *different* entry already uses this proxy URL.
                 existing = self.hass.config_entries.async_entry_for_domain_unique_id(

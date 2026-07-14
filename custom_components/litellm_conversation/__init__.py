@@ -20,6 +20,7 @@ from .util import normalize_base_url
 PLATFORMS = (
     Platform.CONVERSATION,
     Platform.AI_TASK,
+    Platform.SELECT,
     Platform.SENSOR,
     Platform.STT,
     Platform.SWITCH,

@@ -3,7 +3,13 @@ blueprint:
   description: >-
     Run the LiteLLM Conversation memory-consolidation ("dreaming") pass on a
     schedule, and optionally notify a device with a summary of what the
-    assistant learned. Requires the LiteLLM Conversation integration v1.6.0+.
+    assistant learned. Requires the LiteLLM Conversation integration v1.7.0+.
+
+    Model selection: set select.*_dream_model (Settings > Devices & Services
+    > LiteLLM Proxy) to pick a cheap/fast model from your proxy's live model
+    list for nightly dreams. Leave it on "Use AI Task default" to use the
+    same model as your AI Task provider. This blueprint no longer takes a
+    model input — the dream service reads the select entity automatically.
   domain: automation
   source_url: https://github.com/edgar971/ha-litellm-conversation/blob/main/blueprints/automation/nightly_dreaming.yaml
   input:
@@ -13,15 +19,6 @@ blueprint:
       default: "03:00:00"
       selector:
         time:
-    model:
-      name: Model (optional)
-      description: >-
-        Model override for the dream call — a cheap model (e.g. a Haiku-class
-        model on your proxy) is recommended. Leave empty to use the AI Task
-        subentry's model.
-      default: ""
-      selector:
-        text:
     include_activity:
       name: Include household activity
       description: >-
@@ -51,9 +48,12 @@ actions:
   - action: litellm_conversation.dream
     data:
       include_activity: !input include_activity
-      model: !input model
     response_variable: dream
-  - if: "{{ notify_device != '' and (dream.added + dream.updated + dream.deleted) > 0 }}"
+  - if:
+      - condition: template
+        value_template: >-
+          {{ notify_device | length > 0
+             and (dream.added + dream.updated + dream.deleted) > 0 }}
     then:
       - device_id: !input notify_device
         domain: mobile_app

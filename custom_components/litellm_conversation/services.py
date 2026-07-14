@@ -65,6 +65,7 @@ def async_register_services(hass: HomeAssistant) -> None:
 
         from .activity import async_build_activity_digest
         from .dreaming import async_dream
+        from .select import async_get_selected_dream_model
         from .transcripts import async_get_transcript_buffer
 
         entry = _get_loaded_entry(hass)
@@ -80,10 +81,15 @@ def async_register_services(hass: HomeAssistant) -> None:
             ) or dt_util.now() - timedelta(days=1)
             activity_digest = await async_build_activity_digest(hass, start, dt_util.now())
 
+        # Explicit service call arg wins; otherwise fall back to the
+        # select.*_dream_model entity (picked from a live model dropdown,
+        # same list as the config flow); otherwise the AI Task default.
+        model = call.data.get("model") or async_get_selected_dream_model(hass)
+
         result = await async_dream(
             hass,
             entry,
-            model=call.data.get("model") or None,  # "" from blueprints = unset
+            model=model,
             activity_digest=activity_digest,
             dry_run=call.data["dry_run"],
         )

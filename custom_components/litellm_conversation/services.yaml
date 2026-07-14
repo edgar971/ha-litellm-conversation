@@ -59,3 +59,11 @@ dream:
 clear_transcripts:
   name: Clear transcripts
   description: Wipe the conversation transcript buffer used by dreaming.
+
+refresh_models:
+  name: Refresh models
+  description: >-
+    Refetch the model list from your LiteLLM proxy and update the dream
+    model dropdown (select.*_dream_model). Use this after adding a new
+    model to your proxy — the dropdown is otherwise a snapshot taken when
+    Home Assistant started.

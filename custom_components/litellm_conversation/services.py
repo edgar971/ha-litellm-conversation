@@ -24,6 +24,7 @@ SERVICE_REMEMBER = "remember"
 SERVICE_FORGET = "forget"
 SERVICE_DREAM = "dream"
 SERVICE_CLEAR_TRANSCRIPTS = "clear_transcripts"
+SERVICE_REFRESH_MODELS = "refresh_models"
 
 _TEXT_SCHEMA = vol.Schema({vol.Required("text"): str})
 _DREAM_SCHEMA = vol.Schema(
@@ -102,6 +103,18 @@ def async_register_services(hass: HomeAssistant) -> None:
         await buffer.async_load()
         return {"removed": buffer.clear()}
 
+    async def _refresh_models(call: ServiceCall) -> ServiceResponse:
+        from .select import async_refresh_dream_model_options
+
+        entry = _get_loaded_entry(hass)
+        refreshed = await async_refresh_dream_model_options(hass, entry)
+        if not refreshed:
+            raise ServiceValidationError(
+                "The dream model select entity isn't available yet "
+                "(select platform may still be loading)"
+            )
+        return {"refreshed": True}
+
     hass.services.async_register(
         DOMAIN,
         SERVICE_REMEMBER,
@@ -127,6 +140,13 @@ def async_register_services(hass: HomeAssistant) -> None:
         DOMAIN,
         SERVICE_CLEAR_TRANSCRIPTS,
         _clear_transcripts,
+        schema=vol.Schema({}),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_REFRESH_MODELS,
+        _refresh_models,
         schema=vol.Schema({}),
         supports_response=SupportsResponse.OPTIONAL,
     )

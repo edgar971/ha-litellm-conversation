@@ -155,3 +155,47 @@ async def test_clear_transcripts_service(hass: HomeAssistant) -> None:
     )
     assert response == {"removed": 2}
     assert buffer.exchange_count == 0
+
+
+# --- refresh_models service ---
+
+
+async def test_refresh_models_service_no_select_entity(hass: HomeAssistant) -> None:
+    """refresh_models raises a clear validation error when the select entity isn't loaded."""
+    entry = _dream_entry()
+    with (
+        patch.object(hass.config_entries, "async_entries", return_value=[entry]),
+        pytest.raises(ServiceValidationError, match="dream model select entity"),
+    ):
+        await hass.services.async_call(
+            DOMAIN, "refresh_models", {}, blocking=True, return_response=True
+        )
+
+
+async def test_refresh_models_service_updates_entity(hass: HomeAssistant) -> None:
+    """refresh_models fetches fresh models and updates the select entity."""
+    from custom_components.litellm_conversation.select import LiteLLMDreamModelSelect
+
+    entry = _dream_entry()
+    entry.data = {"base_url": "http://localhost:4000", "api_key": "sk-test"}
+
+    select = LiteLLMDreamModelSelect(entry, ["old-model"])
+    select.hass = hass
+    select.entity_id = "select.test_dream_model"
+    select.async_write_ha_state = MagicMock()
+    with patch.object(select, "async_get_last_state", AsyncMock(return_value=None)):
+        await select.async_added_to_hass()
+
+    with (
+        patch.object(hass.config_entries, "async_entries", return_value=[entry]),
+        patch(
+            "custom_components.litellm_conversation.config_flow._get_models",
+            AsyncMock(return_value=["fresh-model"]),
+        ),
+    ):
+        response = await hass.services.async_call(
+            DOMAIN, "refresh_models", {}, blocking=True, return_response=True
+        )
+
+    assert response == {"refreshed": True}
+    assert select.options == ["Use AI Task default", "fresh-model"]

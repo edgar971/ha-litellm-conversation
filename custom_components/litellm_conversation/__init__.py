@@ -8,6 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_API_KEY, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.helpers.typing import ConfigType
 
@@ -16,6 +17,12 @@ from .const import DOMAIN as DOMAIN
 from .extended_tools import async_register_extended_api
 from .services import async_register_services
 from .util import normalize_base_url
+
+# This integration is config-entry only — no YAML configuration is
+# supported. Declaring this explicitly (instead of leaving it implicit)
+# silences hassfest's CONFIG_SCHEMA warning, which otherwise fires on every
+# integration that defines async_setup without a schema.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 PLATFORMS = (
     Platform.CONVERSATION,

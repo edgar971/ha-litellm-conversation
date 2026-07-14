@@ -88,6 +88,22 @@ class LiteLLMDreamModelSelect(SelectEntity, RestoreEntity):
         self._attr_current_option = option
         self.async_write_ha_state()
 
+    async def async_refresh_models(self, models: list[str]) -> None:
+        """Update the option list from a fresh /v1/models fetch.
+
+        The model list is otherwise a startup snapshot — a model added to
+        the proxy after HA started wouldn't appear here until reload/restart.
+        Called by the litellm_conversation.refresh_models service.
+        """
+        current = self._attr_current_option
+        self._attr_options = [USE_DEFAULT_OPTION, *models]
+        if current not in self._attr_options:
+            # The previously selected model disappeared from the proxy —
+            # fall back rather than keep an invalid current_option.
+            current = USE_DEFAULT_OPTION
+        self._attr_current_option = current
+        self.async_write_ha_state()
+
     @property
     def selected_model(self) -> str | None:
         """Return the model id to use for dreaming, or None for the default."""
@@ -102,3 +118,24 @@ def async_get_selected_dream_model(hass: HomeAssistant) -> str | None:
     if entity is None:
         return None
     return entity.selected_model
+
+
+async def async_refresh_dream_model_options(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> bool:
+    """Refetch the proxy's model list and update the dream-model select entity.
+
+    Returns True if the select entity was found and refreshed, False if no
+    entity is registered yet (e.g. select platform hasn't finished loading).
+    """
+    from .config_flow import _get_models
+
+    entity = hass.data.get(DOMAIN, {}).get("dream_model_entity")
+    if entity is None:
+        return False
+
+    models = await _get_models(hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
+    if models:
+        # Also refresh the cached list __init__.py seeded at startup, so any
+        # future select-platform reload picks up the same fresh data.
+        hass.data.setdefault(DOMAIN, {})[f"{entry.entry_id}_models"] = models
+    await entity.async_refresh_models(models)
+    return True

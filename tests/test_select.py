@@ -88,3 +88,53 @@ async def test_setup_entry_reuses_cached_model_list(hass: HomeAssistant) -> None
         )
 
     assert added[0].options[1:] == ["gpt-4o-mini", "claude-x"]
+
+
+async def test_async_refresh_models_updates_options(hass: HomeAssistant) -> None:
+    """async_refresh_models replaces the option list and keeps a valid selection."""
+    from custom_components.litellm_conversation.select import LiteLLMDreamModelSelect
+
+    select = LiteLLMDreamModelSelect(_entry(), ["gpt-4o-mini"])
+    select.hass = hass
+    select.entity_id = "select.test_dream_model"
+    select.async_write_ha_state = MagicMock()
+    with patch.object(select, "async_get_last_state", AsyncMock(return_value=None)):
+        await select.async_added_to_hass()
+    await select.async_select_option("gpt-4o-mini")
+
+    await select.async_refresh_models(["gpt-4o-mini", "new-model"])
+
+    assert select.options == [USE_DEFAULT_OPTION, "gpt-4o-mini", "new-model"]
+    assert select.current_option == "gpt-4o-mini"  # still valid, kept
+
+
+async def test_async_refresh_models_falls_back_when_selection_vanishes(
+    hass: HomeAssistant,
+) -> None:
+    """If the previously selected model disappears from the proxy, fall back to default."""
+    from custom_components.litellm_conversation.select import LiteLLMDreamModelSelect
+
+    select = LiteLLMDreamModelSelect(_entry(), ["old-model"])
+    select.hass = hass
+    select.entity_id = "select.test_dream_model"
+    select.async_write_ha_state = MagicMock()
+    with patch.object(select, "async_get_last_state", AsyncMock(return_value=None)):
+        await select.async_added_to_hass()
+    await select.async_select_option("old-model")
+
+    await select.async_refresh_models(["new-model"])
+
+    assert select.current_option == USE_DEFAULT_OPTION
+    assert select.selected_model is None
+
+
+async def test_refresh_dream_model_options_no_entity_returns_false(hass: HomeAssistant) -> None:
+    """async_refresh_dream_model_options returns False when no select entity exists yet."""
+    from custom_components.litellm_conversation.select import (
+        async_refresh_dream_model_options,
+    )
+
+    hass.data.pop(DOMAIN, None)
+    entry = _entry()
+    entry.data = {"base_url": "x", "api_key": "y"}
+    assert await async_refresh_dream_model_options(hass, entry) is False

@@ -67,3 +67,24 @@ async def test_no_select_entity_registered_returns_none(hass: HomeAssistant) -> 
     """When no select entity has been set up, the lookup returns None."""
     hass.data.pop(DOMAIN, None)
     assert async_get_selected_dream_model(hass) is None
+
+
+async def test_setup_entry_reuses_cached_model_list(hass: HomeAssistant) -> None:
+    """async_setup_entry caches the model list; select platform skips a second live fetch."""
+    from custom_components.litellm_conversation import select as select_module
+
+    entry = _entry()
+    hass.data[DOMAIN] = {f"{entry.entry_id}_models": ["gpt-4o-mini", "claude-x"]}
+
+    with patch(
+        "custom_components.litellm_conversation.config_flow._get_models",
+        AsyncMock(side_effect=AssertionError("should not call _get_models when cached")),
+    ):
+        added: list = []
+        await select_module.async_setup_entry(
+            hass,
+            MagicMock(entry_id=entry.entry_id, data={"base_url": "x", "api_key": "y"}),
+            lambda entities: added.extend(entities),
+        )
+
+    assert added[0].options[1:] == ["gpt-4o-mini", "claude-x"]

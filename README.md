@@ -105,12 +105,13 @@ Beyond the explicit `remember` tool, the integration can **learn from conversati
 
 **How it fits HA:** the integration provides the capability; *your automations* provide the schedule. There is no built-in timer.
 
-- **`litellm_conversation.dream`** service — fields: `model` (optional override; a cheap model is recommended), `include_activity` (also analyze logbook events: automations, presence, locks), `dry_run` (return proposed operations *without* applying — build review flows). Returns `added/updated/deleted/operations/tokens`.
+- **`litellm_conversation.dream`** service — fields: `model` (optional override; takes precedence over the select entity below), `include_activity` (also analyze logbook events: automations, presence, locks), `dry_run` (return proposed operations *without* applying — build review flows). Returns `added/updated/deleted/operations/tokens`.
+- **`select.*_dream_model`** — pick a model for dreaming from a live dropdown of everything your proxy serves (same list the config flow uses), no typing model IDs by hand. Defaults to "Use AI Task default." The nightly blueprint reads this automatically — set a cheap/fast model here once and every scheduled dream uses it.
 - **`switch.*_transcript_capture`** — dreams need material, so conversation exchanges (your text + the reply, never tool internals) are kept in a local rolling buffer (7 days / 200 exchanges, in `.storage/`). The switch pauses capture; `litellm_conversation.clear_transcripts` wipes the buffer. **HA itself never stores conversations — this buffer is the only copy, and it never leaves your box.**
 - **`sensor.*_last_dream`** — timestamp + summary attributes (added/updated/deleted/tokens).
 - **`litellm_conversation_dream_completed`** event fires on the bus with the summary — drive notifications or chained automations.
 
-**Quick start:** import the bundled blueprint for a nightly dream with an optional "what I learned" notification:
+**Quick start:** import the bundled blueprint for a nightly dream with an optional "what I learned" notification. Set `select.*_dream_model` (Settings > Devices & Services > LiteLLM Proxy) to a cheap model first — the blueprint no longer has a model input field:
 
 [![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fedgar971%2Fha-litellm-conversation%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fnightly_dreaming.yaml)
 
@@ -126,7 +127,7 @@ automation:
       - action: litellm_conversation.dream
         data:
           include_activity: true
-          model: bedrock-claude-4-5-haiku  # cheap model for nightly runs
+          model: bedrock-claude-4-5-haiku  # optional — overrides select.*_dream_model
 ```
 
 **Cautious mode (review before applying):** call with `dry_run: true`, send the proposed `operations` as an actionable notification, and only call the real dream (or targeted `remember`/`forget`) after approval.

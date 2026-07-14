@@ -30,11 +30,15 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """Set up the dream model select entity."""
-    from .config_flow import _get_models  # reuse the same live model fetch
+    # Reuse the model list fetched during entry setup's connection check
+    # (async_setup_entry in __init__.py) instead of a second live call.
+    models = hass.data.get(DOMAIN, {}).get(f"{config_entry.entry_id}_models")
+    if models is None:
+        from .config_flow import _get_models  # fallback: live fetch
 
-    models = await _get_models(
-        hass, config_entry.data[CONF_BASE_URL], config_entry.data[CONF_API_KEY]
-    )
+        models = await _get_models(
+            hass, config_entry.data[CONF_BASE_URL], config_entry.data[CONF_API_KEY]
+        )
     async_add_entities([LiteLLMDreamModelSelect(config_entry, models)])
 
 

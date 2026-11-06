@@ -4,8 +4,8 @@ rules:
     status: exempt
     comment: No custom actions provided (the remember/forget/dream services were removed in v2.0.0).
   appropriate-polling:
-    status: exempt
-    comment: No polling; requests are made on demand per conversation turn.
+    status: done
+    comment: Spend/budget sensors share one DataUpdateCoordinator polling /key/info every 15 min; daily counters stay event-driven.
   brands:
     status: done
     comment: Local brand assets shipped at custom_components/litellm_conversation/brand/.
@@ -45,6 +45,6 @@ rules:
   log-when-unavailable: done
   parallel-updates:
     status: exempt
-    comment: No polling entities.
+    comment: Only polling entities are coordinator-backed (single shared fetch); request-driven entities need no throttling.
   reauthentication-flow: done
   test-coverage: done

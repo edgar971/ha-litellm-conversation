@@ -39,6 +39,7 @@ from .const import (
     DOMAIN,
     LOGGER,
     MAX_TOOL_ITERATIONS,
+    REQUEST_METADATA_TAGS,
     SIGNAL_USAGE_UPDATED,
 )
 
@@ -102,6 +103,11 @@ def _build_request_params(
 
     # Ask the proxy to silently drop any params unsupported by the target provider.
     extra_body: dict[str, Any] = {"drop_params": True}
+    # LiteLLM request tags: the proxy reads a top-level body `metadata.tags`
+    # into its spend-log `request_tags` field (Grafana slicing). The OpenAI
+    # SDK has no metadata kwarg on chat.completions.create, so extra_body is
+    # what puts it at the top level of the JSON body.
+    extra_body["metadata"] = {"tags": list(REQUEST_METADATA_TAGS)}
     # reasoning_effort is a LiteLLM body param (not a header); drop_params
     # strips it for models that don't support reasoning.
     if reasoning_effort and reasoning_effort != "none":

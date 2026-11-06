@@ -28,7 +28,14 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_CHAT_MODEL, DEFAULT_CHAT_MODEL, DOMAIN, LOGGER, SIGNAL_USAGE_UPDATED
+from .const import (
+    CONF_CHAT_MODEL,
+    DEFAULT_CHAT_MODEL,
+    DOMAIN,
+    LOGGER,
+    REQUEST_METADATA_TAGS,
+    SIGNAL_USAGE_UPDATED,
+)
 
 EXTENDED_API_ID = f"{DOMAIN}_extended"
 EXTENDED_API_NAME = "LiteLLM Extended Tools"
@@ -308,7 +315,11 @@ class AnalyzeCameraTool(llm.Tool):
                         ],
                     },
                 ],
-                extra_body={"drop_params": True},
+                extra_body={
+                    "drop_params": True,
+                    # Same spend-log tags as conversation/AI Task requests.
+                    "metadata": {"tags": list(REQUEST_METADATA_TAGS)},
+                },
             )
         except Exception as err:  # openai errors -> readable tool result
             return {"error": f"Vision analysis failed: {err}"}

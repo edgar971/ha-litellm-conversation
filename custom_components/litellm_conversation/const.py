@@ -1,5 +1,6 @@
 """Constants for the LiteLLM Conversation integration."""
 
+from datetime import timedelta
 import logging
 
 DOMAIN = "litellm_conversation"
@@ -38,3 +39,13 @@ MAX_TOOL_ITERATIONS = 10
 
 # Dispatcher signal for usage stats updates (sensor platform).
 SIGNAL_USAGE_UPDATED = f"{DOMAIN}_usage_updated"
+
+# Poll interval for the proxy-side spend/budget sensors (GET /key/info is a
+# cheap self-info call; 15 min keeps budget tracking fresh without spamming
+# the proxy).
+KEY_INFO_UPDATE_INTERVAL = timedelta(minutes=15)
+
+# Tags stamped on every Chat Completions request via the LiteLLM body field
+# `metadata.tags` so the proxy's spend logs (request_tags) can be sliced by
+# Home Assistant traffic in Grafana. Keep in sync with docs/roadmap.md.
+REQUEST_METADATA_TAGS = ["home-assistant", "ha-litellm-conversation"]

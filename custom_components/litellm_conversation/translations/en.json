@@ -217,6 +217,16 @@
       "entry_type": "Text-to-speech"
     }
   },
+  "entity": {
+    "sensor": {
+      "proxy_spend": {
+        "name": "Proxy spend"
+      },
+      "budget_utilization": {
+        "name": "Budget utilization"
+      }
+    }
+  },
   "exceptions": {
     "authentication_error": {
       "message": "Authentication failed. Check your LiteLLM API key."

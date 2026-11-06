@@ -24,6 +24,8 @@ A Home Assistant custom integration that connects any [LiteLLM proxy](https://do
 | 🎤 **Speech-to-Text** | Whisper-compatible STT platform for voice assistant pipelines |
 | 🔊 **Text-to-Speech** | OpenAI-compatible TTS platform with voice selection |
 | 📈 **Usage Sensors** | Daily request/token counters exposed as diagnostic sensors |
+| 💰 **Proxy Spend & Budget Sensors** | Proxy-reported USD spend + budget utilization %, polled from LiteLLM `/key/info` (virtual key, no admin) |
+| 🏷️ **Request Tagging** | Every chat request tagged (`metadata.tags`) so LiteLLM spend logs / Grafana can slice Home Assistant traffic |
 | 🛡️ **Guardrails** | Pass LiteLLM proxy guardrails (PII masking, content filtering) per agent |
 | 🌐 **Any Model LiteLLM Supports** | One proxy, unlimited backends: Bedrock, OpenAI, Anthropic, Ollama, Mistral, Gemini, and more |
 
@@ -267,7 +269,7 @@ ha-litellm-conversation/
 │       ├── entity.py            # Base entity, request building, streaming, attachments
 │       ├── extended_tools.py    # Extended Tools LLM API (6 tools)
 │       ├── schemas.py           # Subentry form schemas
-│       ├── sensor.py            # Daily usage counter sensors
+│       ├── sensor.py            # Daily usage counters + proxy spend/budget sensors
 │       ├── stt.py               # Speech-to-text platform
 │       ├── tts.py               # Text-to-speech platform
 │       ├── util.py              # Shared helpers

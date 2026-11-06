@@ -10,9 +10,11 @@ Current state, priorities, and future ideas for ha-litellm-conversation.
 - ✅ STT platform (Whisper-compatible /v1/audio/transcriptions)
 - ✅ TTS platform (/v1/audio/speech, 9 OpenAI voices)
 - ✅ Usage sensors (4 daily diagnostic counters, restart-safe via RestoreSensor)
+- ✅ Proxy-side spend + budget sensors (issue #3): `proxy_spend` (USD, MEASUREMENT — the proxy resets its budget window, so not total_increasing) and `budget_utilization` (%; unknown without max_budget), 15-min `/key/info` DataUpdateCoordinator using the entry's own virtual key
+- ✅ Request metadata tags (`["home-assistant", "ha-litellm-conversation"]`) on every Chat Completions request → LiteLLM spend-log `request_tags` for Grafana slicing
 - ✅ Web search + guardrails passthrough, reasoning effort (body param)
 - ✅ Extended Tools LLM API: call_service (domain blocklist + response data), get_history, fetch_url (SSRF guard), **analyze_camera (nested vision call, usage-tracked), get_calendar_events, add_todo_item** — entity tools gated on exposed-to-Assist
-- ✅ Diagnostics (redacted), dev container, pytest suite (112 tests), CI (lint + tests + hassfest + HACS)
+- ✅ Diagnostics (redacted), dev container, pytest suite (136 tests), CI (lint + tests + hassfest + HACS)
 - ✅ Entities flip unavailable on proxy connection errors (logged once per transition)
 - ✅ HACS distribution working, tagged releases
 
@@ -74,6 +76,7 @@ diagnostic attribute or debug log. Small; mostly waiting on a real need.
 ## Decided / historical
 
 - **Extended tools, web search, STT, TTS, usage sensors, guardrails**: shipped (v1.2–v1.4).
+- **Proxy-side spend/budget sensors + request metadata tags** (issue #3): shipped.
 - **Long-term memory (tools + todo UI + services)**: shipped v1.5.0, **removed in v2.0.0** — use HA's MCP integration with a memory MCP server instead.
 - **Dreaming (background consolidation, transcript buffer, blueprint)**: shipped v1.6.x, **removed in v2.0.0**.
 - **AI Task attachments / vision, camera-calendar-todo tools**: shipped (v1.4.0).

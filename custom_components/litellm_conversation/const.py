@@ -44,3 +44,8 @@ SIGNAL_USAGE_UPDATED = f"{DOMAIN}_usage_updated"
 # cheap self-info call; 15 min keeps budget tracking fresh without spamming
 # the proxy).
 KEY_INFO_UPDATE_INTERVAL = timedelta(minutes=15)
+
+# Tags stamped on every Chat Completions request via the LiteLLM body field
+# `metadata.tags` so the proxy's spend logs (request_tags) can be sliced by
+# Home Assistant traffic in Grafana. Keep in sync with docs/roadmap.md.
+REQUEST_METADATA_TAGS = ["home-assistant", "ha-litellm-conversation"]

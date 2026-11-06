@@ -25,7 +25,17 @@ def test_defaults_minimal_params() -> None:
     assert "top_p" not in create_params
     assert "tools" not in create_params
     assert "response_format" not in create_params
-    assert extra_body == {"drop_params": True}
+    assert extra_body == {
+        "drop_params": True,
+        "metadata": {"tags": ["home-assistant", "ha-litellm-conversation"]},
+    }
+
+
+def test_metadata_tags_always_present() -> None:
+    """Every chat request carries the LiteLLM spend-log tags (Grafana slicing)."""
+    for data in ({}, {"reasoning_effort": "low"}, {"guardrails": "pii-mask"}):
+        _, extra_body = _build_request_params(data, None)
+        assert extra_body["metadata"] == {"tags": ["home-assistant", "ha-litellm-conversation"]}
 
 
 def test_temperature_wins_over_top_p() -> None:

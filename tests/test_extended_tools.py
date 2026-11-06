@@ -398,6 +398,9 @@ async def test_analyze_camera_happy_path(hass: HomeAssistant) -> None:
     assert result == {"camera": "camera.driveway", "answer": "A red car."}
     call_kwargs = entry.runtime_data.chat.completions.create.call_args.kwargs
     assert call_kwargs["model"] == "test-model"
+    assert call_kwargs["extra_body"]["metadata"] == {
+        "tags": ["home-assistant", "ha-litellm-conversation"]
+    }
     user_msg = call_kwargs["messages"][1]
     assert user_msg["content"][0] == {"type": "text", "text": "What do you see?"}
     assert user_msg["content"][1]["image_url"]["url"].startswith("data:image/jpeg;base64,")

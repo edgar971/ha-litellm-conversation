@@ -31,7 +31,7 @@ hardening from the research doc applies everywhere:
 - structured output via `json_schema` response_format with `strict` omitted entirely.
 
 Features that require the Responses API are rejected rather than half-supported —
-code interpreter is explicitly out (see roadmap "Decided / historical").
+code interpreter is explicitly out of scope.
 
 ## Consequences
 

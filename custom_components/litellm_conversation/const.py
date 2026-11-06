@@ -56,5 +56,5 @@ IMAGE_GENERATION_TIMEOUT = 120.0
 
 # Tags stamped on every Chat Completions request via the LiteLLM body field
 # `metadata.tags` so the proxy's spend logs (request_tags) can be sliced by
-# Home Assistant traffic in Grafana. Keep in sync with docs/roadmap.md.
+# Home Assistant traffic in Grafana.
 REQUEST_METADATA_TAGS = ["home-assistant", "ha-litellm-conversation"]

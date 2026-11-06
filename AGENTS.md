@@ -76,6 +76,5 @@ All three must pass before any commit. CI additionally runs **hassfest** and
 
 - `README.md` — user-facing; keep the features table and examples current
   with shipped behavior.
-- `docs/roadmap.md` — state + priorities + future ideas.
 - `docs/litellm-compat.md` — provider-quirk research notes.
 - `CONTRIBUTING.md` — human contributor guide.

@@ -330,7 +330,7 @@ pytest tests/ --cov=custom_components/litellm_conversation
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide, including branching conventions, PR process, and code style expectations.
 
-More docs: [Roadmap](docs/roadmap.md) · [LiteLLM/Bedrock compatibility notes](docs/litellm-compat.md) · [AGENTS.md](AGENTS.md) (conventions for AI coding agents).
+More docs: [LiteLLM/Bedrock compatibility notes](docs/litellm-compat.md) · [ADRs](docs/adr/) · [future ideas](https://github.com/edgar971/ha-litellm-conversation/issues/12).
 
 ---
 

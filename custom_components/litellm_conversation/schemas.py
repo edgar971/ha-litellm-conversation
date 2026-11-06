@@ -225,7 +225,9 @@ def _build_decision_schema(
             vol.Optional("name", default=default_name): str,
             vol.Optional(
                 CONF_DECISION_MODEL,
-                default=defaults.get(CONF_DECISION_MODEL, models[0] if models else DEFAULT_CHAT_MODEL),
+                default=defaults.get(
+                    CONF_DECISION_MODEL, models[0] if models else DEFAULT_CHAT_MODEL
+                ),
             ): SelectSelector(
                 SelectSelectorConfig(
                     options=_model_options(models),

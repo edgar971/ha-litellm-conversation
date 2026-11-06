@@ -104,7 +104,9 @@ def test_build_decision_request_filters_unknown_question_fields() -> None:
 def test_build_decision_request_images_and_object_state() -> None:
     """Images attach as the `images` list; state may be any JSON value."""
     urls = ["data:image/png;base64,QUJD"]
-    body = build_decision_request({"decision_model": "m"}, {"photo": "abc"}, {"q": {"type": "noul"}}, urls)
+    body = build_decision_request(
+        {"decision_model": "m"}, {"photo": "abc"}, {"q": {"type": "noul"}}, urls
+    )
     assert body["images"] == urls
     assert body["state"] == {"photo": "abc"}
 
@@ -145,7 +147,7 @@ def test_parse_decision_response_all_types(eval_module: ModuleType) -> None:
 
 
 def test_parse_decision_response_score_probs_sorted_numerically(eval_module: ModuleType) -> None:
-    """"10" must sort after "2", not before it."""
+    """ "10" must sort after "2", not before it."""
     payload = {
         "answers": {
             "frustration": {
@@ -219,7 +221,10 @@ def _task(
     attachments: list | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        name="support-ticket", state=state, questions=questions or _QUESTIONS, attachments=attachments
+        name="support-ticket",
+        state=state,
+        questions=questions or _QUESTIONS,
+        attachments=attachments,
     )
 
 

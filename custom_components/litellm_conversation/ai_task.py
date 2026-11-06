@@ -422,8 +422,7 @@ def parse_decision_response(payload: Any, questions: dict[str, Any]) -> dict[str
             if isinstance(raw_probs, dict) and raw_probs:
                 try:
                     score_probs = [
-                        float(raw_probs[key])
-                        for key in sorted(raw_probs, key=lambda k: int(k))
+                        float(raw_probs[key]) for key in sorted(raw_probs, key=lambda k: int(k))
                     ]
                 except (KeyError, ValueError) as err:
                     raise ValueError(
@@ -472,9 +471,7 @@ class LiteLLMDecisionEntity(
     """LiteLLM decision-model entity (ai_task.evaluate via /v1/systemone)."""
 
     _attr_icon = "mdi:brain"
-    _attr_supported_features = (
-        _FEATURE_EVALUATE | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS
-    )
+    _attr_supported_features = _FEATURE_EVALUATE | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS
 
     @property
     def _decision_model(self) -> str:
@@ -490,9 +487,7 @@ class LiteLLMDecisionEntity(
     async def _async_evaluate(self, task) -> Any:  # EvaluationTaskResult on HA 2026.11+
         """Answer structured questions through the LiteLLM proxy."""
         if not _HAS_EVALUATION:  # defensive; setup skips this entity otherwise
-            raise HomeAssistantError(
-                "Decision models need Home Assistant 2026.11 or newer"
-            )
+            raise HomeAssistantError("Decision models need Home Assistant 2026.11 or newer")
 
         model = self._decision_model
         image_urls = await _decision_attachment_urls(self.hass, task.attachments)

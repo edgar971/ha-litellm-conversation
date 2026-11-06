@@ -280,6 +280,7 @@ ha-litellm-conversation/
 ├── tests/                       # Pytest suite (pytest-homeassistant-custom-component)
 ├── .devcontainer/               # VS Code dev container config
 ├── .github/workflows/ci.yml    # CI: ruff + pytest + hassfest + HACS validation
+├── justfile                     # Task runner mirroring the CI gates (just --list)
 ├── pyproject.toml               # Package metadata & test config
 ├── ruff.toml                    # Ruff linter config
 └── hacs.json                    # HACS metadata
@@ -287,7 +288,7 @@ ha-litellm-conversation/
 
 ### Linting
 
-This project uses [Ruff](https://docs.astral.sh/ruff/) for linting and formatting.
+This project uses [Ruff](https://docs.astral.sh/ruff/) for linting and formatting. All local gates are wrapped in the [justfile](justfile) — run `just --list` for the recipes, `just check` for everything CI runs.
 
 ```bash
 # Check for lint errors

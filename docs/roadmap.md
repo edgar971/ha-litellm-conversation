@@ -7,6 +7,7 @@ Current state, priorities, and future ideas for ha-litellm-conversation.
 - ✅ Config flow (URL + API key, validates via /v1/models; reauth + reconfigure; masked key inputs)
 - ✅ Conversation agent (streaming, tool calling, reasoning/thinking content via Chat Completions)
 - ✅ AI Task entity (GenDataTask with structured output + **image attachments / vision**)
+- ✅ AI Task generate_image (issue #4): raw `POST /v1/images/generations` through the entry client, opt-in per subentry via `image_model` (+ optional free-text `image_size`/`image_quality` passthrough). `b64_json` responses only — URL-only responses are rejected on purpose (no fetching arbitrary remote URLs); usage (when the provider reports it) feeds the daily sensors; a proxy with no image models deployed gets clean errors, not crashes
 - ✅ STT platform (Whisper-compatible /v1/audio/transcriptions)
 - ✅ TTS platform (/v1/audio/speech, 9 OpenAI voices)
 - ✅ Usage sensors (4 daily diagnostic counters, restart-safe via RestoreSensor)
@@ -14,7 +15,7 @@ Current state, priorities, and future ideas for ha-litellm-conversation.
 - ✅ Request metadata tags (`["home-assistant", "ha-litellm-conversation"]`) on every Chat Completions request → LiteLLM spend-log `request_tags` for Grafana slicing
 - ✅ Web search + guardrails passthrough, reasoning effort (body param)
 - ✅ Extended Tools LLM API: call_service (domain blocklist + response data), get_history, fetch_url (SSRF guard), **analyze_camera (nested vision call, usage-tracked), get_calendar_events, add_todo_item** — entity tools gated on exposed-to-Assist
-- ✅ Diagnostics (redacted), dev container, pytest suite (136 tests), CI (lint + tests + hassfest + HACS)
+- ✅ Diagnostics (redacted), dev container, pytest suite (166 tests), CI (lint + tests + hassfest + HACS)
 - ✅ Entities flip unavailable on proxy connection errors (logged once per transition)
 - ✅ HACS distribution working, tagged releases
 
@@ -37,10 +38,9 @@ memory store files in `.storage/` become orphaned data HA garbage-collects.
 ## Remaining Ideas (rough priority)
 
 1. **Submit to HACS default repositories** — repo shape is ready (CI, releases, brand assets)
-2. **Generate Image** support (ai_task.AITaskEntityFeature.GENERATE_IMAGE)
-3. **Cache-hit indicator** — surface LiteLLM cache metadata (debug log or attribute)
-4. **`create_automation` extended tool** — powerful but risky; needs careful guardrails
-5. **Streaming TTS** — revisit when LiteLLM realtime support matures
+2. **Cache-hit indicator** — surface LiteLLM cache metadata (debug log or attribute)
+3. **`create_automation` extended tool** — powerful but risky; needs careful guardrails
+4. **Streaming TTS** — revisit when LiteLLM realtime support matures
 
 Deliberately skipped: code interpreter (Responses-API-only; repo uses Chat
 Completions for Bedrock compatibility), client-side model fallback (LiteLLM

@@ -17,6 +17,9 @@ CONF_REASONING_EFFORT = "reasoning_effort"
 CONF_WEB_SEARCH = "web_search"
 CONF_WEB_SEARCH_CONTEXT_SIZE = "web_search_context_size"
 CONF_GUARDRAILS = "guardrails"
+CONF_IMAGE_MODEL = "image_model"
+CONF_IMAGE_SIZE = "image_size"
+CONF_IMAGE_QUALITY = "image_quality"
 CONF_STT_MODEL = "stt_model"
 CONF_TTS_MODEL = "tts_model"
 CONF_TTS_VOICE = "tts_voice"
@@ -44,6 +47,12 @@ SIGNAL_USAGE_UPDATED = f"{DOMAIN}_usage_updated"
 # cheap self-info call; 15 min keeps budget tracking fresh without spamming
 # the proxy).
 KEY_INFO_UPDATE_INTERVAL = timedelta(minutes=15)
+
+# Per-request timeout for AI Task image generation. Diffusion backends
+# (Bedrock Stable Diffusion, DALL-E class models) routinely need far longer
+# than the chat path's first-token latency; 120 s is generous without
+# hanging an automation forever.
+IMAGE_GENERATION_TIMEOUT = 120.0
 
 # Tags stamped on every Chat Completions request via the LiteLLM body field
 # `metadata.tags` so the proxy's spend logs (request_tags) can be sliced by

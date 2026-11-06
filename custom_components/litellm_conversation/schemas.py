@@ -27,6 +27,9 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_CHAT_MODEL,
     CONF_GUARDRAILS,
+    CONF_IMAGE_MODEL,
+    CONF_IMAGE_QUALITY,
+    CONF_IMAGE_SIZE,
     CONF_MAX_TOKENS,
     CONF_PROMPT,
     CONF_REASONING_EFFORT,
@@ -174,8 +177,36 @@ def _build_ai_task_schema(
             ): NumberSelector(
                 NumberSelectorConfig(min=0, max=1, step=0.05, mode=NumberSelectorMode.SLIDER)
             ),
+            # Image generation (issue #4): opt-in per subentry. The entity
+            # advertises GENERATE_IMAGE unconditionally (supported_features
+            # can't be re-declared dynamically on the HA builds this installs
+            # for), so "no image model" is a clean runtime error instead.
+            vol.Optional(
+                CONF_IMAGE_MODEL, default=defaults.get(CONF_IMAGE_MODEL, "")
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value="", label="None — image generation off"),
+                        *_model_options(models),
+                    ],
+                    custom_value=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            # Free-text: size strings ("1024x1024") and quality values differ
+            # per provider; drop_params strips whatever the backend rejects.
+            vol.Optional(CONF_IMAGE_SIZE, default=defaults.get(CONF_IMAGE_SIZE, "")): str,
+            vol.Optional(CONF_IMAGE_QUALITY, default=defaults.get(CONF_IMAGE_QUALITY, "")): str,
         }
     )
+
+
+def _clean_ai_task_data(data: dict[str, Any]) -> dict[str, Any]:
+    """Drop empty optional image fields from AI task subentry data."""
+    for key in (CONF_IMAGE_MODEL, CONF_IMAGE_SIZE, CONF_IMAGE_QUALITY):
+        if not data.get(key):
+            data.pop(key, None)
+    return data
 
 
 def _llm_api_options(hass) -> list[SelectOptionDict]:

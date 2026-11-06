@@ -18,6 +18,7 @@ A Home Assistant custom integration that connects any [LiteLLM proxy](https://do
 | 🛠️ **Extended Tools** | Optional power tools: any-service calls, history, URL fetch, camera vision, calendars, to-do lists |
 | 📷 **Vision** | Image attachments for AI Tasks (camera snapshots → structured answers) and an `analyze_camera` voice tool |
 | 📊 **AI Task: generate_data** | Structured output via the `ai_task` platform — parse, classify, or generate JSON |
+| 🖼️ **AI Task: generate_image** | Image generation via LiteLLM's `/v1/images/generations` — set an *Image model* per AI Task subentry (optional size/quality passthrough; any image-capable proxy deployment: Bedrock SD, OpenAI, Vertex) |
 | 🔑 **Custom System Prompts** | Per-subentry system prompt templates with HA template variables |
 | ⚙️ **Full Model Control** | Configure model, temperature, top-p, and max tokens per subentry |
 | 🔎 **Web Search** | Optional native web search via LiteLLM's `web_search_options` passthrough |

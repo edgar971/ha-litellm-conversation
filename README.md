@@ -6,6 +6,22 @@
 
 A Home Assistant custom integration that connects any [LiteLLM proxy](https://docs.litellm.ai/) to Home Assistant as a **Conversation agent** and **AI Task provider** — giving you access to hundreds of LLM models (Bedrock Claude, OpenAI GPT-4, Anthropic Claude, Ollama, Azure OpenAI, and more) without being locked into a single provider.
 
+> [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=litellm_conversation)
+
+---
+
+## 🆚 Difference from the built-in `litellm` integration
+
+Home Assistant core ships its own [`litellm`](https://www.home-assistant.io/integrations/litellm/) integration (Bronze quality scale, conversation + STT only). This integration uses a **separate domain** (`litellm_conversation`) so both can coexist, and adds:
+
+- **AI Task provider** (`generate_data` with structured/vision output, `generate_image`)
+- **Streaming responses**, per-subentry model/temperature/top-p/max-tokens control
+- **Extended tools**: any-service calls, history, URL fetch, camera vision, calendars, to-do lists
+- **TTS platform** and **spend/cost sensors** per model
+- Full model-dropdown control against your own proxy
+
+If you only need a basic conversation agent from a LiteLLM proxy, the built-in integration may be enough. If you want AI Tasks, streaming, tool-heavy Assist setups, or cost visibility, use this one.
+
 ---
 
 ## ✨ Features
@@ -74,13 +90,16 @@ These tools intentionally give the model more reach than the Assist API. Built-i
 - Home Assistant **2025.7.0** or later (uses config subentries and the modern ChatLog LLM APIs)
 - A running [LiteLLM proxy](https://docs.litellm.ai/docs/proxy/quick_start) with at least one model configured
 
-### Via HACS (Recommended)
+### Via Marketplace / HACS (Recommended)
 
-1. Open **HACS** in your Home Assistant sidebar.
-2. Click the three-dot menu → **Custom repositories**.
-3. Add the URL `https://github.com/edgar971/ha-litellm-conversation` with category **Integration**.
-4. Search for **LiteLLM Conversation** and click **Download**.
-5. **Restart Home Assistant.**
+**Home Assistant 2026.11 or newer** ships [Marketplace](https://contributors.home-assistant.io/marketplace/) built in (Settings → Marketplace — HACS is no longer installed separately):
+
+1. Open **Settings → Marketplace**.
+2. Click **⋮ → Add custom repository** and add `https://github.com/edgar971/ha-litellm-conversation` with category **Integration**.
+3. Search for **LiteLLM Conversation** and click **Download**.
+4. **Restart Home Assistant.**
+
+**Home Assistant 2025.x / 2026.10 or older** (HACS custom integration): open **HACS**, three-dot menu → **Custom repositories**, add the same URL with category **Integration**, then download and restart.
 
 ### Manual Installation
 

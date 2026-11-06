@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 import openai
 import voluptuous as vol
-from voluptuous_openapi import convert
 
 from homeassistant.components import conversation
 from homeassistant.config_entries import ConfigSubentry
@@ -42,6 +41,15 @@ from .const import (
     REQUEST_METADATA_TAGS,
     SIGNAL_USAGE_UPDATED,
 )
+
+# HA 2026.9 moved schema handling to probatio: llm.selector_serializer now
+# defers with probatio's UNSUPPORTED sentinel, which voluptuous_openapi doesn't
+# recognize and would hand back as the "schema". Each HA release must use the
+# converter matching its serializer, and probatio ships only with 2026.9+.
+try:
+    from probatio import to_openapi as schema_to_openapi
+except ImportError:  # HA < 2026.9
+    from voluptuous_openapi import convert as schema_to_openapi
 
 if TYPE_CHECKING:
     from . import LiteLLMConfigEntry
@@ -91,7 +99,7 @@ def _build_request_params(
         create_params["tools"] = tools
 
     if structure is not None and structure_name is not None:
-        output_schema = convert(structure, custom_serializer=llm.selector_serializer)
+        output_schema = schema_to_openapi(structure, custom_serializer=llm.selector_serializer)
         # Omit `strict` — not supported by Bedrock and many non-OpenAI providers.
         create_params["response_format"] = {
             "type": "json_schema",
@@ -157,7 +165,7 @@ def _raise_for_api_error(err: openai.OpenAIError, model: str) -> NoReturn:
 
 def _format_tool(tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None) -> dict[str, Any]:
     """Format tool specification for Chat Completions API."""
-    schema = convert(tool.parameters, custom_serializer=custom_serializer)
+    schema = schema_to_openapi(tool.parameters, custom_serializer=custom_serializer)
     return {
         "type": "function",
         "function": {
@@ -168,20 +176,21 @@ def _format_tool(tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None)
     }
 
 
-async def async_prepare_attachment_parts(
+async def async_attachment_data_urls(
     hass: HomeAssistant,
     attachments: list[conversation.Attachment],
-) -> list[dict[str, Any]]:
-    """Encode image attachments as Chat Completions image_url content parts.
+) -> list[str]:
+    """Encode image attachments as data URLs.
 
     Only images are supported: Bedrock (and several other providers) do not
-    reliably accept PDFs on the Chat Completions path.
+    reliably accept PDFs on the Chat Completions path, and a rejected
+    attachment fails clearly rather than being silently dropped.
     """
 
     def _encode(path: Path) -> str:
         return base64.b64encode(path.read_bytes()).decode("utf-8")
 
-    parts: list[dict[str, Any]] = []
+    urls: list[str] = []
     for attachment in attachments:
         if not attachment.mime_type.startswith("image/"):
             raise HomeAssistantError(
@@ -189,13 +198,19 @@ async def async_prepare_attachment_parts(
                 f"{attachment.path.name} is {attachment.mime_type}"
             )
         b64 = await hass.async_add_executor_job(_encode, attachment.path)
-        parts.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:{attachment.mime_type};base64,{b64}"},
-            }
-        )
-    return parts
+        urls.append(f"data:{attachment.mime_type};base64,{b64}")
+    return urls
+
+
+async def async_prepare_attachment_parts(
+    hass: HomeAssistant,
+    attachments: list[conversation.Attachment],
+) -> list[dict[str, Any]]:
+    """Encode image attachments as Chat Completions image_url content parts."""
+    return [
+        {"type": "image_url", "image_url": {"url": url}}
+        for url in await async_attachment_data_urls(hass, attachments)
+    ]
 
 
 def _convert_content_to_messages(

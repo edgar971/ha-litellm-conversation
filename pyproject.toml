@@ -8,7 +8,7 @@ version = "2.1.0"
 description = "Home Assistant custom integration: LiteLLM Conversation via OpenAI-compatible API"
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "openai>=1.58.1",
     "voluptuous-openapi>=0.0.5",
@@ -19,17 +19,23 @@ dev = [
     "ruff>=0.8.0",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
-    "pytest-homeassistant-custom-component>=0.13.300",
-    "hassil==3.5.0",
-    "home-assistant-intents==2026.1.28",
-    "PyTurboJPEG==1.8.0",
+    # Exact pin: the harness fixes the Home Assistant version, and the
+    # conversation/camera requirements below must match that release's
+    # manifests. Bump them together.
+    "pytest-homeassistant-custom-component==0.13.375",
+    "gazetteer-matcher==1.1.0",
+    "hassil==3.12.1",
+    "home-assistant-intents==2026.10.6",
+    "PyTurboJPEG==1.8.3",
     "ha-ffmpeg>=3.2.0",
     "mutagen>=1.47.0",
 ]
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["custom_components*"]
+# pyproject only describes the dev environment; HACS ships custom_components/
+# directly. Packaging nothing also keeps editable installs free of setuptools'
+# path hook, which breaks Home Assistant's custom-integration scan under test.
+[tool.setuptools]
+packages = []
 
 # NOTE: ruff is configured via ruff.toml at the repo root (used by CI and
 # pre-commit). Do not add [tool.ruff] here — ruff prefers ruff.toml when both

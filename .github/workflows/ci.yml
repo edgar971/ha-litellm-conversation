@@ -17,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install ruff
         run: pip install "ruff>=0.8.0"
@@ -38,15 +38,10 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.14"
 
       - name: Install dependencies
-        run: |
-          pip install "pytest>=8.0" "pytest-asyncio>=0.24" \
-            "pytest-homeassistant-custom-component>=0.13.300" \
-            "hassil==3.5.0" "home-assistant-intents==2026.1.28" \
-            "PyTurboJPEG==1.8.0" "ha-ffmpeg==3.2.2" "mutagen==1.48.1" \
-            "openai>=1.58.1" "voluptuous-openapi>=0.0.5"
+        run: pip install -e ".[dev]"
 
       - name: Run tests
         run: pytest tests/ -v --tb=short

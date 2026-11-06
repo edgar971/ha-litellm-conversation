@@ -20,7 +20,7 @@ litellm_settings:
 model_list:
   - model_name: bedrock-claude
     litellm_params:
-      model: bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0
+      model: bedrock/us.anthropic.claude-sonnet-4-5
       additional_drop_params: ["response_format"]
 ```
 

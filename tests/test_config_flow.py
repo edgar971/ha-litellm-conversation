@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import openai
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+import voluptuous as vol
 
+from custom_components.litellm_conversation import config_flow
+from custom_components.litellm_conversation.config_flow import LiteLLMConfigFlow
 from custom_components.litellm_conversation.const import CONF_BASE_URL, DOMAIN
+from custom_components.litellm_conversation.schemas import _build_decision_schema
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
@@ -16,6 +22,8 @@ from homeassistant.data_entry_flow import FlowResultType
 BASE_URL = "http://localhost:4000"
 API_KEY = "sk-test"
 USER_INPUT = {CONF_BASE_URL: BASE_URL, "api_key": API_KEY}
+CONFIG_FLOW = "custom_components.litellm_conversation.config_flow"
+COMPONENT_DIR = Path(config_flow.__file__).parent
 
 
 def _mock_models_list(model_ids: list[str] | None = None) -> AsyncMock:
@@ -181,3 +189,61 @@ async def test_schemas_model_options_placeholder_on_empty() -> None:
         {"value": "b", "label": "b"},
     ]
     assert _model_options([], fallback="whisper-1")[0]["value"] == "whisper-1"
+
+
+# ---------------------------------------------------------------------------
+# Decision subentry
+# ---------------------------------------------------------------------------
+
+
+def _field(schema: vol.Schema, name: str) -> vol.Marker:
+    return next(key for key in schema.schema if key == name)
+
+
+def test_decision_schema_requires_a_deliberate_model_choice() -> None:
+    """A fresh form must not prefill models[0], which is rarely decision-capable."""
+    marker = _field(_build_decision_schema(["bedrock-claude"], {}, "D"), "decision_model")
+    assert isinstance(marker, vol.Required)
+    assert isinstance(marker.default, vol.Undefined)
+
+
+def test_decision_schema_offers_no_placeholder_when_the_proxy_lists_nothing() -> None:
+    """A failed model fetch must not offer a chat model; typing an id still works."""
+    schema = _build_decision_schema([], {}, "D")
+    config = schema.schema[_field(schema, "decision_model")].config
+    assert config["options"] == []
+    assert config["custom_value"] is True
+
+
+def test_decision_schema_keeps_the_saved_model_on_reconfigure() -> None:
+    marker = _field(
+        _build_decision_schema(["other"], {"decision_model": "clef"}, "D"), "decision_model"
+    )
+    assert marker.default() == "clef"
+
+
+@pytest.mark.parametrize("has_evaluation", [True, False])
+def test_decision_subentry_type_follows_core_support(has_evaluation: bool) -> None:
+    with patch(f"{CONFIG_FLOW}.HAS_EVALUATION", has_evaluation):
+        types = LiteLLMConfigFlow.async_get_supported_subentry_types(MagicMock())
+    assert ("ai_task_decision" in types) is has_evaluation
+
+
+def test_every_subentry_type_is_translated() -> None:
+    """A type missing here renders blank buttons and raw keys in the UI."""
+    with patch(f"{CONFIG_FLOW}.HAS_EVALUATION", True):
+        types = LiteLLMConfigFlow.async_get_supported_subentry_types(MagicMock())
+    strings = json.loads(Path(COMPONENT_DIR, "strings.json").read_text())["config_subentries"]
+    for subentry_type in types:
+        block = strings[subentry_type]
+        assert block["initiate_flow"]["user"]
+        assert block["entry_type"]
+        assert {"user", "reconfigure"} <= set(block["step"])
+        assert block["abort"]["reconfigure_successful"]
+
+
+def test_translation_files_match() -> None:
+    component = Path(COMPONENT_DIR)
+    assert (component / "strings.json").read_text() == (
+        component / "translations" / "en.json"
+    ).read_text()

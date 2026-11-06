@@ -38,13 +38,14 @@ from .const import (
 from .schemas import (
     _build_ai_task_schema,
     _build_conversation_schema,
+    _build_decision_schema,
     _build_stt_schema,
     _build_tts_schema,
     _clean_ai_task_data,
     _clean_conversation_data,
     _llm_api_options,
 )
-from .util import normalize_base_url
+from .util import HAS_EVALUATION, normalize_base_url
 
 API_KEY_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 
@@ -271,12 +272,15 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
         cls, config_entry: ConfigEntry
     ) -> dict[str, type[ConfigSubentryFlow]]:
         """Return supported subentry types."""
-        return {
+        types: dict[str, type[ConfigSubentryFlow]] = {
             "conversation": LiteLLMConversationSubentryFlowHandler,
             "ai_task_data": LiteLLMAITaskSubentryFlowHandler,
             "stt": LiteLLMSTTSubentryFlowHandler,
             "tts": LiteLLMTTSSubentryFlowHandler,
         }
+        if HAS_EVALUATION:
+            types["ai_task_decision"] = LiteLLMDecisionSubentryFlowHandler
+        return types
 
 
 class LiteLLMConversationSubentryFlowHandler(ConfigSubentryFlow):
@@ -372,6 +376,44 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=_build_ai_task_schema(models, dict(subentry.data), subentry.title),
+        )
+
+
+class LiteLLMDecisionSubentryFlowHandler(ConfigSubentryFlow):
+    """Decision-model subentry flow (ai_task.evaluate via /v1/systemone)."""
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        """Handle subentry configuration."""
+        if user_input is not None:
+            data = dict(user_input)
+            title = data.pop("name", "") or "LiteLLM Decision Model"
+            return self.async_create_entry(title=title, data=data)
+
+        entry = self._get_entry()
+        models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_build_decision_schema(models, {}, "LiteLLM Decision Model"),
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Handle reconfiguration of an existing decision subentry."""
+        subentry = self._get_reconfigure_subentry()
+
+        if user_input is not None:
+            data = dict(user_input)
+            title = data.pop("name", "") or subentry.title
+            return self.async_update_and_abort(self._get_entry(), subentry, title=title, data=data)
+
+        entry = self._get_entry()
+        models = await _get_models(self.hass, entry.data[CONF_BASE_URL], entry.data[CONF_API_KEY])
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_build_decision_schema(models, dict(subentry.data), subentry.title),
         )
 
 

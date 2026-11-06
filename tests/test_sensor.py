@@ -24,6 +24,13 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.util import dt as dt_util
 
 
+@pytest.fixture(autouse=True)
+def no_midnight_timer():
+    """Sensors here are added by hand, so nothing would cancel the reset timer."""
+    with patch("custom_components.litellm_conversation.sensor.async_track_time_change"):
+        yield
+
+
 def _sensor(hass: HomeAssistant) -> LiteLLMUsageSensor:
     entry = MagicMock()
     entry.entry_id = "test_entry"

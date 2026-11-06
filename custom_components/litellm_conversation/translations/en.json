@@ -164,6 +164,38 @@
       },
       "entry_type": "AI task provider"
     },
+    "ai_task_decision": {
+      "initiate_flow": {
+        "user": "Add decision model"
+      },
+      "step": {
+        "user": {
+          "title": "Configure decision model",
+          "data": {
+            "decision_model": "Decision model",
+            "name": "Name"
+          },
+          "data_description": {
+            "decision_model": "A decision-capable model on your LiteLLM proxy; chat models cannot answer evaluations. If the list is empty or your model is missing, type its name."
+          }
+        },
+        "reconfigure": {
+          "title": "Reconfigure decision model",
+          "data": {
+            "decision_model": "Decision model",
+            "name": "Name"
+          },
+          "data_description": {
+            "decision_model": "A decision-capable model on your LiteLLM proxy; chat models cannot answer evaluations. If the list is empty or your model is missing, type its name."
+          }
+        }
+      },
+      "abort": {
+        "already_configured": "This decision model is already configured.",
+        "reconfigure_successful": "Re-configuration was successful."
+      },
+      "entry_type": "Decision model"
+    },
     "stt": {
       "initiate_flow": {
         "user": "Add speech-to-text"

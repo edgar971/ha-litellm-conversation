@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-11-05 (v2.0.0 tag)
-- **Context:** commits `3fc55aa` / `4172b94`; [`docs/roadmap.md`](../roadmap.md) "Removed in v2.0.0"
+- **Context:** commits `3fc55aa` / `4172b94`; CHANGELOG v2.0.0 "Removed" notes
 
 ## Context
 
@@ -45,7 +45,7 @@ MCP integration plus a memory MCP server of the user's choice.
   worth of actions and the nightly LLM spend are gone; the proxy bridge stays
   sharp.
 - Breaking for users who built on it. Accepted as a v2.0.0 cost; guidance is in
-  the roadmap and release notes.
+  the changelog and release notes.
 - The silent-failure lesson generalizes: anything here that runs without a user
   in the loop (the spend-sensor coordinator, entity availability flips) must be
   observable — sensors go `unavailable`, errors log once per transition.

@@ -1,8 +1,8 @@
 # 0003 — No client-side model fallback
 
 - **Status:** Accepted
-- **Date:** 2026-11-06 (formalized; decided earlier, recorded in [`docs/roadmap.md`](../roadmap.md) "Decided / historical")
-- **Context:** `conversation.py`, `entity.py`; roadmap "Deliberately skipped"
+- **Date:** 2026-11-06 (formalized; decided earlier)
+- **Context:** `conversation.py`, `entity.py`
 
 ## Context
 

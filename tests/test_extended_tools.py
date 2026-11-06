@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import voluptuous as vol
 
+from custom_components.litellm_conversation.const import DOMAIN
+from custom_components.litellm_conversation.entity import _format_tool
 from custom_components.litellm_conversation.extended_tools import (
     EXTENDED_API_ID,
     CallServiceTool,
@@ -42,6 +45,16 @@ def _mock_entry() -> MagicMock:
     entry = MagicMock()
     entry.runtime_data = MagicMock()
     return entry
+
+
+@pytest.fixture
+def public_host():
+    """Treat fetch_url hosts as public; tests must not perform real DNS lookups."""
+    with patch(
+        "custom_components.litellm_conversation.extended_tools._resolve_is_private",
+        return_value=False,
+    ):
+        yield
 
 
 # --- registration ---
@@ -269,7 +282,7 @@ def test_resolve_is_private() -> None:
     assert _resolve_is_private("8.8.8.8") is False
 
 
-async def test_fetch_url_success(hass: HomeAssistant) -> None:
+async def test_fetch_url_success(hass: HomeAssistant, public_host: None) -> None:
     """Successful fetch returns status, content type and truncated body."""
     response = MagicMock()
     response.status_code = 200
@@ -294,7 +307,7 @@ async def test_fetch_url_success(hass: HomeAssistant) -> None:
     }
 
 
-async def test_fetch_url_error(hass: HomeAssistant) -> None:
+async def test_fetch_url_error(hass: HomeAssistant, public_host: None) -> None:
     """Network errors surface as error dicts."""
     client = MagicMock()
     client.get = AsyncMock(side_effect=OSError("connection refused"))
@@ -589,3 +602,32 @@ async def test_analyze_camera_dispatches_usage(hass: HomeAssistant) -> None:
     signal, data = received[0]
     assert signal.endswith("_entryX")
     assert data["total_tokens"] == 120
+
+
+# --- HA contract ---
+
+_ALL_TOOLS = [
+    AddTodoItemTool,
+    AnalyzeCameraTool,
+    CallServiceTool,
+    FetchUrlTool,
+    GetCalendarEventsTool,
+    GetHistoryTool,
+]
+
+
+def _build_tool(tool_cls: type[llm.Tool]) -> llm.Tool:
+    return tool_cls(_mock_entry()) if tool_cls is AnalyzeCameraTool else tool_cls()
+
+
+@pytest.mark.parametrize("tool_cls", _ALL_TOOLS)
+def test_tool_schema_serializes_to_json(tool_cls: type[llm.Tool]) -> None:
+    """Every tool schema must reach the wire as JSON (regression: HA 2026.9 probatio move)."""
+    spec = _format_tool(_build_tool(tool_cls), llm.selector_serializer)
+    assert json.loads(json.dumps(spec))["function"]["parameters"]["type"] == "object"
+
+
+@pytest.mark.parametrize("tool_cls", _ALL_TOOLS)
+def test_tool_records_its_integration(tool_cls: type[llm.Tool]) -> None:
+    """HA requires tools to name their integration (enforced from 2027.10)."""
+    assert _build_tool(tool_cls).integration == DOMAIN

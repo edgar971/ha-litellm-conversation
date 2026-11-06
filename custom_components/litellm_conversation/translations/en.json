@@ -230,53 +230,5 @@
     "api_error": {
       "message": "LiteLLM API returned status {status_code}."
     }
-  },
-  "services": {
-    "remember": {
-      "name": "Remember",
-      "description": "Save a durable fact to the assistant's long-term memory. The fact is injected into future conversations with agents using the LiteLLM Extended Tools API.",
-      "fields": {
-        "text": {
-          "name": "Text",
-          "description": "The fact to remember (max 300 characters)."
-        }
-      }
-    },
-    "forget": {
-      "name": "Forget",
-      "description": "Delete long-term memories whose text contains the given fragment (case-insensitive).",
-      "fields": {
-        "text": {
-          "name": "Text",
-          "description": "Fragment to match against stored memories."
-        }
-      }
-    },
-    "dream": {
-      "name": "Dream",
-      "description": "Run one memory-consolidation pass: analyze conversation transcripts since the last dream (plus optional household activity) and add/update/delete long-term memories.",
-      "fields": {
-        "model": {
-          "name": "Model",
-          "description": "Model override for the dream call. Defaults to the AI Task subentry's model."
-        },
-        "include_activity": {
-          "name": "Include activity",
-          "description": "Also analyze recent logbook activity (automations, presence, locks)."
-        },
-        "dry_run": {
-          "name": "Dry run",
-          "description": "Return proposed memory operations without applying them."
-        }
-      }
-    },
-    "clear_transcripts": {
-      "name": "Clear transcripts",
-      "description": "Wipe the conversation transcript buffer used by dreaming."
-    },
-    "refresh_models": {
-      "name": "Refresh models",
-      "description": "Refetch the model list from your LiteLLM proxy and update the dream model dropdown (select.*_dream_model). Use this after adding a new model to your proxy — the dropdown is otherwise a snapshot taken when Home Assistant started."
-    }
   }
 }

@@ -27,11 +27,11 @@ model_list:
 ### Per-request from OpenAI client (our approach)
 Pass via `extra_body` — LiteLLM proxy forwards this to the underlying litellm call:
 ```python
-extra_body={"drop_params": True}
+extra_body = {"drop_params": True}
 ```
 `additional_drop_params` is also accepted per-request:
 ```python
-extra_body={"additional_drop_params": ["response_format"]}
+extra_body = {"additional_drop_params": ["response_format"]}
 ```
 
 ### Python SDK (direct litellm, not proxy)

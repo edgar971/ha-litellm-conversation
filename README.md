@@ -16,8 +16,6 @@ A Home Assistant custom integration that connects any [LiteLLM proxy](https://do
 | 🌊 **Streaming Responses** | Real-time streamed replies for a snappy assistant experience |
 | 🔧 **Tool / Function Calling** | Let the LLM control HA devices via the HA LLM API (lights, locks, scenes, etc.) |
 | 🛠️ **Extended Tools** | Optional power tools: any-service calls, history, URL fetch, camera vision, calendars, to-do lists |
-| 🧠 **Long-Term Memory** | Durable facts persist across conversations — managed from HA's To-do panel |
-| 💤 **Dreaming** | Background memory consolidation: learn from conversations automatically, on your schedule |
 | 📷 **Vision** | Image attachments for AI Tasks (camera snapshots → structured answers) and an `analyze_camera` voice tool |
 | 📊 **AI Task: generate_data** | Structured output via the `ai_task` platform — parse, classify, or generate JSON |
 | 🔑 **Custom System Prompts** | Per-subentry system prompt templates with HA template variables |
@@ -53,7 +51,6 @@ Selecting **LiteLLM Extended Tools** as the agent's LLM API (instead of the defa
 | `analyze_camera` | Snapshot a camera and answer a question about the image ("Is there a package by the door?") — runs a nested vision call through your LiteLLM proxy using the conversation agent's model |
 | `get_calendar_events` | Read upcoming events from a calendar entity (up to 30 days ahead) |
 | `add_todo_item` | Add an item to a to-do/shopping list ("add milk to the shopping list") |
-| `remember` / `forget` / `list_memories` | Long-term memory: durable facts that persist across conversations (see below) |
 
 ### ⚠️ Security notes
 
@@ -63,100 +60,7 @@ These tools intentionally give the model more reach than the Assist API. Built-i
 - `fetch_url` only accepts `http`/`https` and **blocks URLs resolving to private, loopback, or link-local addresses** (SSRF guard) — the model cannot probe your LAN, the Supervisor API, or your router.
 - `analyze_camera`, `get_calendar_events`, and `add_todo_item` only work with entities **exposed to Assist** — a prompt-injected model cannot look at cameras or lists you chose not to expose.
 - `analyze_camera` makes an extra model call per use (the vision request); its token usage is counted by the usage sensors.
-- Memories are injected as **reference facts, never instructions**, capped at 50 entries × 300 chars — a prompt-injected "memory" can't become a standing order, and memory growth can't silently inflate token spend.
 - `call_service` is still powerful: it can operate locks, garage doors, and alarm panels if those services exist. Only enable Extended Tools on agents you trust with device control, and keep sensitive entities unexposed where possible.
-
----
-
-## 🧠 Long-Term Memory
-
-Agents using the Extended Tools API get **persistent memory across conversations**. Say *"remember that the water shutoff is behind the basement panel"* — weeks later, in a fresh conversation, the agent knows.
-
-**How it works:**
-
-- The model calls `remember` when you state a durable fact; stored memories are injected into every conversation's system prompt (max 50 memories, 300 chars each)
-- Storage is a local JSON file in HA's `.storage/` — nothing leaves your box
-- Say *"what do you remember?"* (`list_memories`) or *"forget the thing about the shutoff"* (`forget`)
-
-**Manage memories in the UI:** the integration creates a **`todo.*_memories`** entity — open HA's built-in **To-do lists** panel to review, edit, add, or delete everything the assistant knows. Deleting or checking off an item forgets it. Add a standard todo-list card to any dashboard to keep memories visible.
-
-**Automation-driven memories** via services:
-
-```yaml
-# Example: remember appliance service visits automatically
-automation:
-  - alias: "Remember furnace service"
-    triggers:
-      - trigger: calendar
-        entity_id: calendar.family
-        event: end
-    conditions: "{{ 'furnace' in trigger.calendar_event.summary | lower }}"
-    actions:
-      - action: litellm_conversation.remember
-        data:
-          text: "Furnace last serviced {{ now().strftime('%B %Y') }}"
-```
-
-`litellm_conversation.forget` removes memories matching a text fragment. Both services return response data (`remembered`/`removed`).
-
-### 💤 Dreaming — background memory consolidation
-
-Beyond the explicit `remember` tool, the integration can **learn from conversations automatically**. A "dream" is one LLM call that analyzes recent conversation transcripts (and optionally household activity) against the current memory list, then adds, updates, merges, or deletes memories — the same architecture ChatGPT uses (a hot-path memory tool + background consolidation).
-
-**How it fits HA:** the integration provides the capability; *your automations* provide the schedule. There is no built-in timer.
-
-- **`litellm_conversation.dream`** service — fields: `model` (optional override; takes precedence over the select entity below), `include_activity` (also analyze logbook events: automations, presence, locks), `dry_run` (return proposed operations *without* applying — build review flows). Returns `added/updated/deleted/operations/tokens`.
-- **`select.*_dream_model`** — pick a model for dreaming from a live dropdown of everything your proxy serves (same list the config flow uses), no typing model IDs by hand. Defaults to "Use AI Task default." The nightly blueprint reads this automatically — set a cheap/fast model here once and every scheduled dream uses it. The dropdown is a snapshot taken when HA starts; if you add a new model to your proxy afterwards, call **`litellm_conversation.refresh_models`** to refetch it without a restart.
-- **`switch.*_transcript_capture`** — dreams need material, so conversation exchanges (your text + the reply, never tool internals) are kept in a local rolling buffer (7 days / 200 exchanges, in `.storage/`). The switch pauses capture; `litellm_conversation.clear_transcripts` wipes the buffer. **HA itself never stores conversations — this buffer is the only copy, and it never leaves your box.**
-- **`sensor.*_last_dream`** — timestamp + summary attributes (added/updated/deleted/tokens).
-- **`litellm_conversation_dream_completed`** event fires on the bus with the summary — drive notifications or chained automations.
-
-**Quick start:** import the bundled blueprint for a nightly dream with an optional "what I learned" notification. Set `select.*_dream_model` (Settings > Devices & Services > LiteLLM Proxy) to a cheap model first — the blueprint no longer has a model input field:
-
-[![Import Blueprint](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fedgar971%2Fha-litellm-conversation%2Fblob%2Fmain%2Fblueprints%2Fautomation%2Fnightly_dreaming.yaml)
-
-Or by hand:
-
-```yaml
-automation:
-  - alias: "Nightly dreaming"
-    triggers:
-      - trigger: time
-        at: "03:00:00"
-    actions:
-      - action: litellm_conversation.dream
-        data:
-          include_activity: true
-          model: bedrock-claude-4-5-haiku  # optional — overrides select.*_dream_model
-```
-
-**Cautious mode (review before applying):** call with `dry_run: true`, send the proposed `operations` as an actionable notification, and only call the real dream (or targeted `remember`/`forget`) after approval.
-
-### 🖥️ Memory dashboard (no custom cards needed)
-
-Everything composes from standard Lovelace cards:
-
-```yaml
-type: vertical-stack
-cards:
-  - type: todo-list
-    entity: todo.litellm_conversation_memories
-    title: 🧠 What the assistant knows
-  - type: entities
-    entities:
-      - entity: switch.litellm_conversation_transcript_capture
-        name: Transcript capture
-      - entity: sensor.litellm_conversation_last_dream
-        name: Last dream
-  - type: button
-    name: 💤 Dream now
-    icon: mdi:sleep
-    tap_action:
-      action: perform-action
-      perform_action: litellm_conversation.dream
-      data:
-        include_activity: true
-```
 
 ---
 
@@ -355,31 +259,21 @@ ha-litellm-conversation/
 ├── custom_components/
 │   └── litellm_conversation/
 │       ├── __init__.py          # Integration setup, config entry load/unload
-│       ├── activity.py          # Logbook activity digest (dreaming input)
 │       ├── ai_task.py           # AI Task platform (generate_data + attachments)
 │       ├── config_flow.py       # Config + subentry UI flows
 │       ├── const.py             # Constants, defaults
-│       ├── conversation.py      # Conversation agent platform (+ transcript capture)
+│       ├── conversation.py      # Conversation agent platform
 │       ├── diagnostics.py       # Redacted diagnostics export
-│       ├── dreaming.py          # Background memory consolidation
 │       ├── entity.py            # Base entity, request building, streaming, attachments
-│       ├── extended_tools.py    # Extended Tools LLM API (9 tools)
-│       ├── memory.py            # Long-term memory store
+│       ├── extended_tools.py    # Extended Tools LLM API (6 tools)
 │       ├── schemas.py           # Subentry form schemas
-│       ├── sensor.py            # Usage sensors + last-dream sensor
-│       ├── services.py          # remember/forget/dream/clear_transcripts
+│       ├── sensor.py            # Daily usage counter sensors
 │       ├── stt.py               # Speech-to-text platform
-│       ├── switch.py            # Transcript capture toggle
-│       ├── todo.py              # Memories as a native to-do list
-│       ├── transcripts.py       # Rolling conversation transcript buffer
 │       ├── tts.py               # Text-to-speech platform
 │       ├── util.py              # Shared helpers
 │       ├── manifest.json        # Integration metadata
 │       ├── strings.json         # UI strings (English)
 │       └── translations/        # i18n translations
-├── blueprints/
-│   └── automation/
-│       └── nightly_dreaming.yaml  # Importable nightly-dream automation
 ├── tests/                       # Pytest suite (pytest-homeassistant-custom-component)
 ├── .devcontainer/               # VS Code dev container config
 ├── .github/workflows/ci.yml    # CI: ruff + pytest + hassfest + HACS validation

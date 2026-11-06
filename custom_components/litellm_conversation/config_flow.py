@@ -40,6 +40,7 @@ from .schemas import (
     _build_conversation_schema,
     _build_stt_schema,
     _build_tts_schema,
+    _clean_ai_task_data,
     _clean_conversation_data,
     _llm_api_options,
 )
@@ -338,7 +339,7 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
             title = data.pop("name", "") or "LiteLLM AI Tasks"
             return self.async_create_entry(
                 title=title,
-                data=data,
+                data=_clean_ai_task_data(data),
             )
 
         entry = self._get_entry()
@@ -362,7 +363,7 @@ class LiteLLMAITaskSubentryFlowHandler(ConfigSubentryFlow):
                 self._get_entry(),
                 subentry,
                 title=title,
-                data=data,
+                data=_clean_ai_task_data(data),
             )
 
         entry = self._get_entry()

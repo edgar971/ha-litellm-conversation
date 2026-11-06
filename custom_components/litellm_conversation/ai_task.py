@@ -2,17 +2,35 @@
 
 from __future__ import annotations
 
+import base64
+from dataclasses import dataclass
 from json import JSONDecodeError
-from typing import override
+import re
+from typing import Any, override
+
+import openai
 
 from homeassistant.components import ai_task, conversation
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util.json import json_loads
 
 from . import LiteLLMConfigEntry
-from .entity import LiteLLMBaseLLMEntity
+from .const import (
+    CONF_IMAGE_MODEL,
+    CONF_IMAGE_QUALITY,
+    CONF_IMAGE_SIZE,
+    IMAGE_GENERATION_TIMEOUT,
+    LOGGER,
+    REQUEST_METADATA_TAGS,
+    SIGNAL_USAGE_UPDATED,
+)
+from .entity import LiteLLMBaseLLMEntity, _raise_for_api_error
+
+# "1024x1024" / "512X512" style size strings (the common OpenAI-shaped form).
+_SIZE_RE = re.compile(r"^(\d+)\s*[xX]\s*(\d+)$")
 
 
 async def async_setup_entry(
@@ -30,6 +48,138 @@ async def async_setup_entry(
         )
 
 
+def parse_size(value: Any) -> tuple[int, int] | None:
+    """Parse a "WxH" size string into (width, height); anything else is None.
+
+    Pure helper so the width/height metadata on GenImageTaskResult can be
+    unit-tested without network. The value comes from user config, not the
+    model response, so a non-numeric provider-specific size ("square") just
+    yields no dimensions rather than an error.
+    """
+    if isinstance(value, str) and (match := _SIZE_RE.match(value.strip())):
+        return int(match.group(1)), int(match.group(2))
+    return None
+
+
+def build_image_request(subentry_data: dict[str, Any], instructions: str) -> dict[str, Any]:
+    """Build the /v1/images/generations request body.
+
+    Pure function (mirrors _build_request_params for the chat path): all
+    field mapping lives here so it is unit-testable without network. Assumes
+    the caller already verified an image model is configured.
+    """
+    body: dict[str, Any] = {
+        "model": subentry_data[CONF_IMAGE_MODEL],
+        "prompt": instructions,
+        "n": 1,
+        # b64_json so the bytes come back in-band: HA's GenImageTaskResult
+        # requires raw image_data and this integration deliberately does not
+        # fetch URLs returned by the proxy (SSRF posture, AGENTS.md conv. 5).
+        "response_format": "b64_json",
+    }
+
+    # Optional passthroughs; values are provider-specific free-text, so we
+    # only forward what the user configured and let drop_params absorb the
+    # rest (Bedrock SD ignores `quality`, e.g.).
+    if size := str(subentry_data.get(CONF_IMAGE_SIZE) or "").strip():
+        body["size"] = size
+    if quality := str(subentry_data.get(CONF_IMAGE_QUALITY) or "").strip():
+        body["quality"] = quality
+
+    # LiteLLM-specific fields ride at the top level of the JSON body (this is
+    # a raw client.post, so there is no SDK extra_body kwarg to merge them):
+    # drop_params keeps provider quirks intact (AGENTS.md conv. 1) and
+    # metadata.tags feeds the proxy's spend-log request_tags like chat requests.
+    body["drop_params"] = True
+    body["metadata"] = {"tags": list(REQUEST_METADATA_TAGS)}
+    return body
+
+
+def _normalize_usage(raw: Any) -> dict[str, int] | None:
+    """Map an image response `usage` onto the token keys the daily sensors read.
+
+    OpenAI's images API reports input_tokens/output_tokens while LiteLLM
+    usually normalizes to prompt_tokens/completion_tokens; accept both and
+    emit the sensor-facing spelling. Returns None when the response carries
+    no usable usage (many diffusion providers don't).
+    """
+    if not isinstance(raw, dict) or not raw:
+        return None
+
+    def _num(*keys: str) -> int:
+        for key in keys:
+            value = raw.get(key)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                return int(value)
+        return 0
+
+    prompt = _num("prompt_tokens", "input_tokens")
+    completion = _num("completion_tokens", "output_tokens")
+    total = _num("total_tokens") or prompt + completion
+    if not (prompt or completion or total):
+        return None
+    return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total}
+
+
+@dataclass(frozen=True)
+class ParsedImage:
+    """Decoded single-image result from a /v1/images/generations response."""
+
+    image_data: bytes
+    mime_type: str
+    revised_prompt: str | None
+    usage: dict[str, int] | None
+
+
+def parse_image_response(payload: Any) -> ParsedImage:
+    """Parse an /images/generations response body into a ParsedImage.
+
+    Pure function so the parsing contract is unit-testable without network.
+    Raises ValueError on structurally malformed payloads or when no base64
+    image is present (incl. URL-only responses — see error message for why
+    we intentionally do not fetch those).
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("expected a JSON object from /images/generations")
+    data = payload.get("data")
+    if not isinstance(data, list) or not data:
+        raise ValueError("'data' list missing or empty in /images/generations response")
+    first = data[0]
+    if not isinstance(first, dict):
+        raise ValueError("unexpected 'data[0]' shape in /images/generations response")
+
+    b64 = first.get("b64_json")
+    if not isinstance(b64, str) or not b64:
+        if isinstance(first.get("url"), str) and first["url"]:
+            # We explicitly request response_format=b64_json; a provider that
+            # ignores it and returns only a URL would require us to fetch an
+            # arbitrary remote address with the proxy's credentials context —
+            # that is an SSRF surface (AGENTS.md conv. 5), so fail cleanly and
+            # tell the user how to fix their model choice instead.
+            raise ValueError(
+                "provider returned only an image URL; this integration does not fetch "
+                "remote URLs — configure an image model whose provider honors b64_json"
+            )
+        raise ValueError("no 'b64_json' image payload in /images/generations response")
+
+    try:
+        image_data = base64.b64decode(b64, validate=True)
+    except ValueError as err:  # binascii.Error subclasses ValueError
+        raise ValueError("invalid base64 image data in response") from err
+    if not image_data:
+        raise ValueError("empty image payload in /images/generations response")
+
+    revised = first.get("revised_prompt")
+    return ParsedImage(
+        image_data=image_data,
+        # OpenAI-compatible image endpoints return PNG by default and the
+        # response carries no content-type field to negotiate otherwise.
+        mime_type="image/png",
+        revised_prompt=revised if isinstance(revised, str) else None,
+        usage=_normalize_usage(payload.get("usage")),
+    )
+
+
 class LiteLLMAITaskEntity(
     ai_task.AITaskEntity,
     LiteLLMBaseLLMEntity,
@@ -37,7 +187,13 @@ class LiteLLMAITaskEntity(
     """LiteLLM AI Task entity."""
 
     _attr_supported_features = (
-        ai_task.AITaskEntityFeature.GENERATE_DATA | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS
+        ai_task.AITaskEntityFeature.GENERATE_DATA
+        | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS
+        # Advertised unconditionally: supported_features is static on the HA
+        # builds this integration installs for, so it cannot be toggled per
+        # subentry. generate_image raises a clean error when no image model
+        # is configured (see _async_generate_image).
+        | ai_task.AITaskEntityFeature.GENERATE_IMAGE
     )
 
     @override
@@ -72,4 +228,77 @@ class LiteLLMAITaskEntity(
         return ai_task.GenDataTaskResult(
             conversation_id=chat_log.conversation_id,
             data=data,
+        )
+
+    @override
+    async def _async_generate_image(
+        self,
+        task: ai_task.GenImageTask,
+        chat_log: conversation.ChatLog,
+    ) -> ai_task.GenImageTaskResult:
+        """Handle a generate image task via the proxy's /v1/images/generations.
+
+        Uses a raw client.post (same pattern as the /key/info coordinator)
+        rather than client.images.generate so LiteLLM-specific body fields
+        (drop_params, metadata.tags) sit at the top level and the response is
+        parsed by our own pure function. The entry client's base_url already
+        ends in /v1, hence the "/images/generations" path.
+        """
+        subentry_data = self.subentry.data
+        model = subentry_data.get(CONF_IMAGE_MODEL)
+        if not model:
+            raise HomeAssistantError(
+                "No image model configured for this LiteLLM AI Task entity. Set "
+                "'Image model' in the AI task options to an image-capable model "
+                "deployed on your LiteLLM proxy (the proxy's chat models cannot "
+                "generate images)."
+            )
+
+        body = build_image_request(subentry_data, task.instructions)
+        try:
+            payload = await self.client.with_options(timeout=IMAGE_GENERATION_TIMEOUT).post(
+                "/images/generations", body=body, cast_to=dict
+            )
+        except openai.APIConnectionError as err:
+            self._set_available(False)
+            _raise_for_api_error(err, model)
+        except openai.OpenAIError as err:
+            # A proxy with no image models deployed answers 4xx here (e.g.
+            # "No deployments available"); _raise_for_api_error maps that to
+            # a translated HomeAssistantError instead of crashing.
+            _raise_for_api_error(err, model)
+        self._set_available(True)
+
+        try:
+            parsed = parse_image_response(payload)
+        except ValueError as err:
+            raise HomeAssistantError(f"Unexpected LiteLLM image response: {err}") from err
+
+        LOGGER.info(
+            "LiteLLM image generated: model=%s bytes=%d usage=%s",
+            model,
+            len(parsed.image_data),
+            parsed.usage or "n/a",
+        )
+
+        # AGENTS.md conv. 7: dispatch usage so the daily sensors stay honest.
+        # Only when the response actually carries usage — image providers are
+        # inconsistent about it (Bedrock SD reports none); we do not invent a
+        # zero-token request row, matching the chat path's `if usage:` gate.
+        if parsed.usage:
+            async_dispatcher_send(
+                self.hass,
+                f"{SIGNAL_USAGE_UPDATED}_{self.entry.entry_id}",
+                {"model": model, **parsed.usage},
+            )
+
+        dims = parse_size(subentry_data.get(CONF_IMAGE_SIZE))
+        return ai_task.GenImageTaskResult(
+            image_data=parsed.image_data,
+            conversation_id=chat_log.conversation_id,
+            mime_type=parsed.mime_type,
+            width=dims[0] if dims else None,
+            height=dims[1] if dims else None,
+            model=model,
+            revised_prompt=parsed.revised_prompt,
         )

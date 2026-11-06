@@ -128,7 +128,15 @@
             "temperature": "Temperature",
             "max_tokens": "Maximum tokens",
             "top_p": "Top P",
-            "name": "Name"
+            "name": "Name",
+            "image_model": "Image model",
+            "image_size": "Image size",
+            "image_quality": "Image quality"
+          },
+          "data_description": {
+            "image_model": "Model used for image generation via the proxy's images endpoint. Leave empty to disable image generation for this task entity. The model must be an image-capable deployment on your LiteLLM proxy (e.g. a Stable Diffusion or gpt-image model).",
+            "image_size": "Optional image size, e.g. '1024x1024'. Provider-specific; leave empty to use the provider default.",
+            "image_quality": "Optional quality hint, e.g. 'standard' or 'hd'. Provider-specific; unsupported values are dropped by the proxy."
           }
         },
         "reconfigure": {
@@ -138,7 +146,15 @@
             "temperature": "Temperature",
             "max_tokens": "Maximum tokens",
             "top_p": "Top P",
-            "name": "Name"
+            "name": "Name",
+            "image_model": "Image model",
+            "image_size": "Image size",
+            "image_quality": "Image quality"
+          },
+          "data_description": {
+            "image_model": "Model used for image generation via the proxy's images endpoint. Leave empty to disable image generation for this task entity. The model must be an image-capable deployment on your LiteLLM proxy (e.g. a Stable Diffusion or gpt-image model).",
+            "image_size": "Optional image size, e.g. '1024x1024'. Provider-specific; leave empty to use the provider default.",
+            "image_quality": "Optional quality hint, e.g. 'standard' or 'hd'. Provider-specific; unsupported values are dropped by the proxy."
           }
         }
       },

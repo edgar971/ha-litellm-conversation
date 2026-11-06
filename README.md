@@ -4,13 +4,13 @@
 [![GitHub Release](https://img.shields.io/github/release/edgar971/ha-litellm-conversation.svg)](https://github.com/edgar971/ha-litellm-conversation/releases)
 [![License](https://img.shields.io/github/license/edgar971/ha-litellm-conversation.svg)](LICENSE)
 
-A Home Assistant custom integration that connects any [LiteLLM proxy](https://docs.litellm.ai/) to Home Assistant as a **Conversation agent** and **AI Task provider** — giving you access to hundreds of LLM models (Bedrock Claude, OpenAI GPT-4, Anthropic Claude, Ollama, Azure OpenAI, and more) without being locked into a single provider.
+Connects any [LiteLLM proxy](https://docs.litellm.ai/) to Home Assistant as a conversation agent and AI Task provider. Whatever models your proxy serves — Bedrock, OpenAI, Anthropic, Ollama, Azure OpenAI — become available to Assist, `ai_task.generate_data`, STT/TTS pipelines, and usage sensors.
 
 > [![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=litellm_conversation)
 
 ---
 
-## 🆚 Difference from the built-in `litellm` integration
+## Difference from the built-in `litellm` integration
 
 Home Assistant core ships its own [`litellm`](https://www.home-assistant.io/integrations/litellm/) integration (Bronze quality scale, conversation + STT only). This integration uses a **separate domain** (`litellm_conversation`) so both can coexist, and adds:
 
@@ -24,31 +24,31 @@ If you only need a basic conversation agent from a LiteLLM proxy, the built-in i
 
 ---
 
-## ✨ Features
+## Features
 
 | Feature | Description |
 |---------|-------------|
-| 🗣️ **Conversation Agent** | Use any LiteLLM-backed model as your HA voice/chat assistant |
-| 🌊 **Streaming Responses** | Real-time streamed replies for a snappy assistant experience |
-| 🔧 **Tool / Function Calling** | Let the LLM control HA devices via the HA LLM API (lights, locks, scenes, etc.) |
-| 🛠️ **Extended Tools** | Optional power tools: any-service calls, history, URL fetch, camera vision, calendars, to-do lists |
-| 📷 **Vision** | Image attachments for AI Tasks (camera snapshots → structured answers) and an `analyze_camera` voice tool |
-| 📊 **AI Task: generate_data** | Structured output via the `ai_task` platform — parse, classify, or generate JSON |
-| 🖼️ **AI Task: generate_image** | Image generation via LiteLLM's `/v1/images/generations` — set an *Image model* per AI Task subentry (optional size/quality passthrough; any image-capable proxy deployment: Bedrock SD, OpenAI, Vertex) |
-| 🔑 **Custom System Prompts** | Per-subentry system prompt templates with HA template variables |
-| ⚙️ **Full Model Control** | Configure model, temperature, top-p, and max tokens per subentry |
-| 🔎 **Web Search** | Optional native web search via LiteLLM's `web_search_options` passthrough |
-| 🎤 **Speech-to-Text** | Whisper-compatible STT platform for voice assistant pipelines |
-| 🔊 **Text-to-Speech** | OpenAI-compatible TTS platform with voice selection |
-| 📈 **Usage Sensors** | Daily request/token counters exposed as diagnostic sensors |
-| 💰 **Proxy Spend & Budget Sensors** | Proxy-reported USD spend + budget utilization %, polled from LiteLLM `/key/info` (virtual key, no admin) |
-| 🏷️ **Request Tagging** | Every chat request tagged (`metadata.tags`) so LiteLLM spend logs / Grafana can slice Home Assistant traffic |
-| 🛡️ **Guardrails** | Pass LiteLLM proxy guardrails (PII masking, content filtering) per agent |
-| 🌐 **Any Model LiteLLM Supports** | One proxy, unlimited backends: Bedrock, OpenAI, Anthropic, Ollama, Mistral, Gemini, and more |
+| **Conversation Agent** | Use any LiteLLM-backed model as your HA voice/chat assistant |
+| **Streaming Responses** | Replies stream token-by-token into the Assist bubble |
+| **Tool / Function Calling** | Let the LLM control HA devices via the HA LLM API (lights, locks, scenes, etc.) |
+| **Extended Tools** | Optional power tools: any-service calls, history, URL fetch, camera vision, calendars, to-do lists |
+| **Vision** | Image attachments for AI Tasks (camera snapshots → structured answers) and an `analyze_camera` voice tool |
+| **AI Task: generate_data** | Structured output via the `ai_task` platform — parse, classify, or generate JSON |
+| **AI Task: generate_image** | Image generation via LiteLLM's `/v1/images/generations` — set an *Image model* per AI Task subentry (optional size/quality passthrough; any image-capable proxy deployment: Bedrock SD, OpenAI, Vertex) |
+| **Custom System Prompts** | Per-subentry system prompt templates with HA template variables |
+| **Full Model Control** | Configure model, temperature, top-p, and max tokens per subentry |
+| **Web Search** | Optional native web search via LiteLLM's `web_search_options` passthrough |
+| **Speech-to-Text** | Whisper-compatible STT platform for voice assistant pipelines |
+| **Text-to-Speech** | OpenAI-compatible TTS platform with voice selection |
+| **Usage Sensors** | Daily request/token counters exposed as diagnostic sensors |
+| **Proxy Spend & Budget Sensors** | Proxy-reported USD spend + budget utilization %, polled from LiteLLM `/key/info` (virtual key, no admin) |
+| **Request Tagging** | Every chat request tagged (`metadata.tags`) so LiteLLM spend logs / Grafana can slice Home Assistant traffic |
+| **Guardrails** | Pass LiteLLM proxy guardrails (PII masking, content filtering) per agent |
+| **Any Model LiteLLM Supports** | Whatever your proxy is configured with — the integration adds no model allowlist |
 
 ---
 
-## 🔌 Use with MCP Servers
+## Use with MCP Servers
 
 Home Assistant's [MCP integration](https://www.home-assistant.io/integrations/mcp/) exposes tools from any MCP server (memory, web search, RAG, etc.) to conversation agents through the HA LLM API framework. This integration supports that out of the box:
 
@@ -58,7 +58,7 @@ Home Assistant's [MCP integration](https://www.home-assistant.io/integrations/mc
 
 ---
 
-## 🔧 Extended Tools (power users)
+## Extended Tools (power users)
 
 Selecting **LiteLLM Extended Tools** as the agent's LLM API (instead of the default Assist API) gives the model everything Assist provides **plus** six power tools:
 
@@ -71,7 +71,7 @@ Selecting **LiteLLM Extended Tools** as the agent's LLM API (instead of the defa
 | `get_calendar_events` | Read upcoming events from a calendar entity (up to 30 days ahead) |
 | `add_todo_item` | Add an item to a to-do/shopping list ("add milk to the shopping list") |
 
-### ⚠️ Security notes
+### Security notes
 
 These tools intentionally give the model more reach than the Assist API. Built-in guardrails:
 
@@ -83,7 +83,7 @@ These tools intentionally give the model more reach than the Assist API. Built-i
 
 ---
 
-## 🚀 Installation
+## Installation
 
 ### Prerequisites
 
@@ -95,7 +95,7 @@ These tools intentionally give the model more reach than the Assist API. Built-i
 **Home Assistant 2026.11 or newer** ships [Marketplace](https://contributors.home-assistant.io/marketplace/) built in (Settings → Marketplace — HACS is no longer installed separately):
 
 1. Open **Settings → Marketplace**.
-2. Click **⋮ → Add custom repository** and add `https://github.com/edgar971/ha-litellm-conversation` with category **Integration**.
+2. Click **→ Add custom repository** and add `https://github.com/edgar971/ha-litellm-conversation` with category **Integration**.
 3. Search for **LiteLLM Conversation** and click **Download**.
 4. **Restart Home Assistant.**
 
@@ -115,7 +115,7 @@ These tools intentionally give the model more reach than the Assist API. Built-i
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Step 1 — Add the Integration
 
@@ -150,7 +150,7 @@ Two subentries are created automatically:
 
 Provides the `ai_task.generate_data` action for structured output. Supports the same model/temperature/max-token options as conversation.
 
-##### 📷 Vision: image attachments
+##### Vision: image attachments
 
 AI Task entities accept **image attachments** — including live camera snapshots via `media-source://camera/...`. The image is sent to your model through the LiteLLM proxy (vision-capable model required, e.g. Claude on Bedrock):
 
@@ -182,7 +182,7 @@ Only image attachments are supported (PDFs are rejected — Bedrock's Chat Compl
 
 ---
 
-## 🤖 Supported Model Providers
+## Supported Model Providers
 
 LiteLLM acts as a unified proxy. Configure your models in `litellm_config.yaml` and point this integration at your proxy:
 
@@ -190,7 +190,7 @@ LiteLLM acts as a unified proxy. Configure your models in `litellm_config.yaml` 
 |----------|---------------------|
 | OpenAI | `gpt-4o`, `gpt-4o-mini` |
 | Anthropic (direct) | `claude-opus-4-5`, `claude-sonnet-4-5` |
-| AWS Bedrock | `bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0` |
+| AWS Bedrock | `bedrock/us.anthropic.claude-sonnet-4-5` |
 | Azure OpenAI | `azure/gpt-4o` |
 | Ollama (local) | `ollama/llama3.2`, `ollama/mistral` |
 | Google Gemini | `gemini/gemini-1.5-pro` |
@@ -200,7 +200,7 @@ See the full list at [docs.litellm.ai/providers](https://docs.litellm.ai/docs/pr
 
 ---
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
 ### Integration can't connect to LiteLLM proxy
 
@@ -238,13 +238,7 @@ Then check **Settings** → **System** → **Logs** for detailed output.
 
 ---
 
-## 🎨 Brand Assets
-
-Brand icons/logos for this integration are not yet submitted to the official [Home Assistant Brands repository](https://github.com/home-assistant/brands). Contributions welcome — see their [contributing guide](https://github.com/home-assistant/brands#contributing) for the required formats.
-
----
-
-## 👩‍💻 Developer Guide
+## Developer Guide
 
 ### Prerequisites
 
@@ -340,6 +334,6 @@ More docs: [Roadmap](docs/roadmap.md) · [LiteLLM/Bedrock compatibility notes](d
 
 ---
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.

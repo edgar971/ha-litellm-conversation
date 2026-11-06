@@ -219,18 +219,24 @@ def _build_decision_schema(
 
     Deliberately minimal: /v1/systemone takes no temperature/max_tokens knobs
     — a decision model is picked, not tuned.
+
+    A new subentry gets no default: /v1/models can't tell decision models from
+    chat models, so prefilling models[0] (or the chat placeholder) would save a
+    model that only fails later, at automation runtime. custom_value stays on
+    so a failed model fetch still leaves the field usable.
     """
+    saved_model = defaults.get(CONF_DECISION_MODEL)
+    model_key = (
+        vol.Required(CONF_DECISION_MODEL, default=saved_model)
+        if saved_model
+        else vol.Required(CONF_DECISION_MODEL)
+    )
     return vol.Schema(
         {
             vol.Optional("name", default=default_name): str,
-            vol.Optional(
-                CONF_DECISION_MODEL,
-                default=defaults.get(
-                    CONF_DECISION_MODEL, models[0] if models else DEFAULT_CHAT_MODEL
-                ),
-            ): SelectSelector(
+            model_key: SelectSelector(
                 SelectSelectorConfig(
-                    options=_model_options(models),
+                    options=[SelectOptionDict(value=m, label=m) for m in models],
                     custom_value=True,
                     mode=SelectSelectorMode.DROPDOWN,
                 )

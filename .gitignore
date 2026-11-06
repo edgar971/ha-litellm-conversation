@@ -9,8 +9,10 @@ __pycache__/
 *.haref_*
 .haref_*.py
 
+# Local HA dev environment written by scripts/develop
+config/
+
 # Env / secrets
 .env
 .venv/
 venv/
-.venv/

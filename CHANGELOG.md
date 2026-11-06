@@ -8,6 +8,8 @@ via [git-cliff](https://git-cliff.org) and Conventional Commits
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-06
+
 ### Added
 
 - Proxy-side spend + budget sensors from LiteLLM `/key/info` (15-min coordinator, entry's own virtual key): `proxy_spend` (USD) and `budget_utilization` (%).

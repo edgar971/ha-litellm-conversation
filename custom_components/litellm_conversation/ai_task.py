@@ -6,7 +6,7 @@ import base64
 from dataclasses import dataclass
 from json import JSONDecodeError
 import re
-from typing import Any, override
+from typing import Any, cast, override
 
 import openai
 
@@ -19,15 +19,34 @@ from homeassistant.util.json import json_loads
 
 from . import LiteLLMConfigEntry
 from .const import (
+    CONF_DECISION_MODEL,
     CONF_IMAGE_MODEL,
     CONF_IMAGE_QUALITY,
     CONF_IMAGE_SIZE,
+    DECISION_EVALUATION_TIMEOUT,
     IMAGE_GENERATION_TIMEOUT,
     LOGGER,
     REQUEST_METADATA_TAGS,
     SIGNAL_USAGE_UPDATED,
 )
 from .entity import LiteLLMBaseLLMEntity, _raise_for_api_error
+
+# Decision models (ai_task.evaluate via the proxy's /v1/systemone endpoint)
+# need HA 2026.11+, where homeassistant.components.ai_task.evaluation landed.
+# On older cores we degrade gracefully: the config flow hides the subentry
+# type and any pre-existing decision subentries are skipped at setup, so an
+# install downgraded below 2026.11 keeps working for every other platform.
+try:
+    from homeassistant.components.ai_task import evaluation as _evaluation_module
+
+    _HAS_EVALUATION = True
+except ImportError:  # HA < 2026.11: no ai_task.evaluation module
+    _evaluation_module = None
+    _HAS_EVALUATION = False
+
+# EVALUATE exists only on HA 2026.11+; getattr keeps this module importable
+# (and the flag simply absent from supported_features) on older cores.
+_FEATURE_EVALUATE = getattr(ai_task.AITaskEntityFeature, "EVALUATE", ai_task.AITaskEntityFeature(0))
 
 # "1024x1024" / "512X512" style size strings (the common OpenAI-shaped form).
 _SIZE_RE = re.compile(r"^(\d+)\s*[xX]\s*(\d+)$")
@@ -40,12 +59,25 @@ async def async_setup_entry(
 ) -> None:
     """Set up AI Task entities from a config entry."""
     for subentry in config_entry.subentries.values():
-        if subentry.subentry_type != "ai_task_data":
+        if subentry.subentry_type == "ai_task_decision":
+            if not _HAS_EVALUATION:
+                LOGGER.warning(
+                    "Skipping decision subentry '%s': decision models need Home"
+                    " Assistant 2026.11 or newer",
+                    subentry.title,
+                )
+                continue
+            async_add_entities(
+                [LiteLLMDecisionEntity(config_entry, subentry)],
+                config_subentry_id=subentry.subentry_id,
+            )
+        elif subentry.subentry_type != "ai_task_data":
             continue
-        async_add_entities(
-            [LiteLLMAITaskEntity(config_entry, subentry)],
-            config_subentry_id=subentry.subentry_id,
-        )
+        else:
+            async_add_entities(
+                [LiteLLMAITaskEntity(config_entry, subentry)],
+                config_subentry_id=subentry.subentry_id,
+            )
 
 
 def parse_size(value: Any) -> tuple[int, int] | None:
@@ -301,4 +333,197 @@ class LiteLLMAITaskEntity(
             height=dims[1] if dims else None,
             model=model,
             revised_prompt=parsed.revised_prompt,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Decision models (issue #13): ai_task.evaluate via the proxy's
+# POST /v1/systemone route (LiteLLM >= 1.104.2). HA's evaluation contract is
+# deliberately System-One-shaped, so questions pass through nearly verbatim.
+# ---------------------------------------------------------------------------
+
+
+def build_decision_request(
+    subentry_data: dict[str, Any],
+    state: Any,
+    questions: dict[str, Any],
+    image_urls: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build a /v1/systemone request body from an EvaluationTask's fields.
+
+    Pure helper so the mapping contract is unit-testable without network.
+    HA question dicts ({type, instructions, criteria}) are System-One-shaped
+    already; we copy only those keys so unknown future fields fail at the
+    proxy (with drop_params) instead of being silently forwarded.
+    """
+    if not questions:
+        raise ValueError("at least one question is required")
+
+    body: dict[str, Any] = {
+        "model": subentry_data[CONF_DECISION_MODEL],
+        "state": state,
+        "questions": {
+            qid: {k: q[k] for k in ("type", "instructions", "criteria") if k in q}
+            for qid, q in questions.items()
+        },
+    }
+    if image_urls:
+        body["images"] = list(image_urls)
+    body["drop_params"] = True
+    body["metadata"] = {"tags": list(REQUEST_METADATA_TAGS)}
+    return body
+
+
+def parse_decision_response(payload: Any, questions: dict[str, Any]) -> dict[str, Any]:
+    """Map a /v1/systemone response's answers onto HA answer objects.
+
+    Pure helper so the mapping contract is unit-testable without network.
+    System One returns score probabilities keyed by string index ("0", "1");
+    HA wants them as an ordered list. Raises ValueError on malformed or
+    incomplete payloads (a missing question id means the proxy answered
+    fewer questions than we asked, which callers surface as a clean error).
+    """
+    if not isinstance(payload, dict):
+        raise ValueError("expected a JSON object from /v1/systemone")
+    answers = payload.get("answers")
+    if not isinstance(answers, dict):
+        raise ValueError("missing 'answers' object in /v1/systemone response")
+
+    result: dict[str, Any] = {}
+    for qid, question in questions.items():
+        answer = answers.get(qid)
+        if not isinstance(answer, dict):
+            raise ValueError(f"no answer for question '{qid}' in /v1/systemone response")
+        q_type = question.get("type")
+        if q_type == "noul":
+            noul = answer.get("noul")
+            if not isinstance(noul, (int, float)) or isinstance(noul, bool):
+                raise ValueError(f"answer for '{qid}' has no numeric noul")
+            result[qid] = _evaluation_module.NoulAnswer(noul=float(noul))  # pyright: ignore[reportOptionalMemberAccess]
+        elif q_type == "choice":
+            choice = answer.get("choice")
+            if not isinstance(choice, str):
+                raise ValueError(f"answer for '{qid}' has no string choice")
+            raw_probs = answer.get("probabilities")
+            choice_probs = (
+                {k: float(v) for k, v in raw_probs.items() if isinstance(v, (int, float))}
+                if isinstance(raw_probs, dict)
+                else None
+            )
+            result[qid] = _evaluation_module.ChoiceAnswer(  # pyright: ignore[reportOptionalMemberAccess]
+                choice=choice, probabilities=choice_probs
+            )
+        elif q_type == "score":
+            score = answer.get("score")
+            if not isinstance(score, (int, float)) or isinstance(score, bool):
+                raise ValueError(f"answer for '{qid}' has no numeric score")
+            raw_probs = answer.get("probabilities")
+            score_probs: list[float] | None = None
+            if isinstance(raw_probs, dict) and raw_probs:
+                try:
+                    score_probs = [
+                        float(raw_probs[key])
+                        for key in sorted(raw_probs, key=lambda k: int(k))
+                    ]
+                except (KeyError, ValueError) as err:
+                    raise ValueError(
+                        f"answer for '{qid}' has non-index-keyed score probabilities"
+                    ) from err
+            result[qid] = _evaluation_module.ScoreAnswer(  # pyright: ignore[reportOptionalMemberAccess]
+                score=float(score), probabilities=score_probs
+            )
+        else:
+            raise ValueError(f"unsupported question type {q_type!r} for '{qid}'")
+    return result
+
+
+async def _decision_attachment_urls(
+    hass: HomeAssistant, attachments: list[Any] | None
+) -> list[str]:
+    """Encode evaluation attachments as data URLs for the `images` field.
+
+    /v1/systemone takes images as URLs or data URLs (OpenAI and Cloudflare
+    Clef deployments). Only images are supported here — same rule as the chat
+    vision path; a PDF attachment fails with a clear message rather than
+    being silently dropped.
+    """
+    if not attachments:
+        return []
+
+    def _encode(path) -> str:
+        return base64.b64encode(path.read_bytes()).decode("utf-8")
+
+    urls: list[str] = []
+    for attachment in attachments:
+        if not attachment.mime_type.startswith("image/"):
+            raise HomeAssistantError(
+                "Decision evaluations support only image attachments; "
+                f"{attachment.path.name} is {attachment.mime_type}"
+            )
+        b64 = await hass.async_add_executor_job(_encode, attachment.path)
+        urls.append(f"data:{attachment.mime_type};base64,{b64}")
+    return urls
+
+
+class LiteLLMDecisionEntity(
+    ai_task.AITaskEntity,
+    LiteLLMBaseLLMEntity,
+):
+    """LiteLLM decision-model entity (ai_task.evaluate via /v1/systemone)."""
+
+    _attr_icon = "mdi:brain"
+    _attr_supported_features = (
+        _FEATURE_EVALUATE | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS
+    )
+
+    @property
+    def _decision_model(self) -> str:
+        model = self.subentry.data.get(CONF_DECISION_MODEL)
+        if not isinstance(model, str) or not model.strip():
+            raise HomeAssistantError(
+                "No decision model configured on this subentry; reconfigure it "
+                "and pick a decision-capable proxy model (e.g. cloudflare/clef)."
+            )
+        return model.strip()
+
+    @override
+    async def _async_evaluate(self, task) -> Any:  # EvaluationTaskResult on HA 2026.11+
+        """Answer structured questions through the LiteLLM proxy."""
+        if not _HAS_EVALUATION:  # defensive; setup skips this entity otherwise
+            raise HomeAssistantError(
+                "Decision models need Home Assistant 2026.11 or newer"
+            )
+
+        model = self._decision_model
+        image_urls = await _decision_attachment_urls(self.hass, task.attachments)
+        body = build_decision_request(self.subentry.data, task.state, task.questions, image_urls)
+
+        try:
+            payload = await self.client.with_options(timeout=DECISION_EVALUATION_TIMEOUT).post(
+                "/systemone", body=body, cast_to=dict
+            )
+        except openai.APIConnectionError as err:
+            self._set_available(False)
+            _raise_for_api_error(err, model)
+        except openai.OpenAIError as err:
+            # A key without the decision model scoped, or a proxy below
+            # 1.104.2 without the route, answers 4xx here; map to a clean
+            # HomeAssistantError like every other raw-post path.
+            _raise_for_api_error(err, model)
+        self._set_available(True)
+
+        try:
+            answers = parse_decision_response(payload, task.questions)
+        except ValueError as err:
+            raise HomeAssistantError(f"Unexpected LiteLLM decision response: {err}") from err
+
+        LOGGER.debug(
+            "Decision model %s answered task %r (%d questions, %d images)",
+            model,
+            task.name,
+            len(answers),
+            len(image_urls),
+        )
+        return _evaluation_module.EvaluationTaskResult(  # pyright: ignore[reportOptionalMemberAccess]
+            answers=cast("dict[str, Any]", answers)
         )

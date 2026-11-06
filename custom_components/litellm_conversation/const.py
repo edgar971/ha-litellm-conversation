@@ -21,6 +21,7 @@ CONF_IMAGE_MODEL = "image_model"
 CONF_IMAGE_SIZE = "image_size"
 CONF_IMAGE_QUALITY = "image_quality"
 CONF_STT_MODEL = "stt_model"
+CONF_DECISION_MODEL = "decision_model"
 CONF_TTS_MODEL = "tts_model"
 CONF_TTS_VOICE = "tts_voice"
 
@@ -53,6 +54,12 @@ KEY_INFO_UPDATE_INTERVAL = timedelta(minutes=15)
 # than the chat path's first-token latency; 120 s is generous without
 # hanging an automation forever.
 IMAGE_GENERATION_TIMEOUT = 120.0
+
+# Per-request timeout for decision-model evaluations (POST /v1/systemone).
+# Decision models are small fast classifiers, so this is deliberately much
+# tighter than the diffusion path: a hung evaluation should fail the
+# automation quickly rather than sit on it for minutes.
+DECISION_EVALUATION_TIMEOUT = 60.0
 
 # Tags stamped on every Chat Completions request via the LiteLLM body field
 # `metadata.tags` so the proxy's spend logs (request_tags) can be sliced by

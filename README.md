@@ -35,6 +35,7 @@ If you only need a basic conversation agent from a LiteLLM proxy, the built-in i
 | **Vision** | Image attachments for AI Tasks (camera snapshots → structured answers) and an `analyze_camera` voice tool |
 | **AI Task: generate_data** | Structured output via the `ai_task` platform — parse, classify, or generate JSON |
 | **AI Task: generate_image** | Image generation via LiteLLM's `/v1/images/generations` — set an *Image model* per AI Task subentry (optional size/quality passthrough; any image-capable proxy deployment: Bedrock SD, OpenAI, Vertex) |
+| **AI Task: decision models** | `ai_task.evaluate` (HA 2026.11+) via LiteLLM's `/v1/systemone` — yes/no probabilities, choices, and scores with confidence, incl. camera-snapshot attachments on supported deployments |
 | **Custom System Prompts** | Per-subentry system prompt templates with HA template variables |
 | **Full Model Control** | Configure model, temperature, top-p, and max tokens per subentry |
 | **Web Search** | Optional native web search via LiteLLM's `web_search_options` passthrough |
@@ -173,6 +174,28 @@ data:
 ```
 
 Only image attachments are supported (PDFs are rejected — Bedrock's Chat Completions path does not reliably accept them).
+
+#### Decision Model Subentry (Home Assistant 2026.11+)
+
+Adds an `ai_task` entity that answers structured questions through the proxy's `/v1/systemone` endpoint ([LiteLLM decision models](https://docs.litellm.ai/docs/decisions), LiteLLM ≥ 1.104.2). Decision models are small fast classifiers — you pick one, there are no temperature/max-token knobs. Set it as the **default decision entity** under Settings → AI Task, or call it directly:
+
+```yaml
+# automation trigger condition: is this doorbell visitor a delivery driver?
+- action: ai_task.evaluate
+  data:
+    entity_id: ai_task.litellm_decision_model
+    task_name: doorbell
+    state: "{{ trigger.description }}"
+    questions:
+      delivery:
+        type: noul
+        instructions: Does this describe a delivery person at the door?
+```
+
+- Question types: `noul` (yes/no probability), `choice` (pick from named options), `score` (value 0–1 against a scale).
+- Image attachments work on deployments that accept them (OpenAI, Cloudflare Clef) — same camera-snapshot pattern as AI Task vision. PDFs are rejected.
+- The model must be decision-capable on the proxy (`mode: decisions`) **and scoped to your virtual key** — otherwise the call fails with a clean permission error.
+- On Home Assistant older than 2026.11 the subentry type is hidden (the `ai_task.evaluate` contract does not exist there yet).
 
 ### Step 4 — Assign to Voice Assistant
 

@@ -26,6 +26,7 @@ from homeassistant.helpers.selector import (
 
 from .const import (
     CONF_CHAT_MODEL,
+    CONF_DECISION_MODEL,
     CONF_GUARDRAILS,
     CONF_IMAGE_MODEL,
     CONF_IMAGE_QUALITY,
@@ -207,6 +208,33 @@ def _clean_ai_task_data(data: dict[str, Any]) -> dict[str, Any]:
         if not data.get(key):
             data.pop(key, None)
     return data
+
+
+def _build_decision_schema(
+    models: list[str],
+    defaults: dict[str, Any],
+    default_name: str,
+) -> vol.Schema:
+    """Build the decision-model subentry schema (shared by user + reconfigure).
+
+    Deliberately minimal: /v1/systemone takes no temperature/max_tokens knobs
+    — a decision model is picked, not tuned.
+    """
+    return vol.Schema(
+        {
+            vol.Optional("name", default=default_name): str,
+            vol.Optional(
+                CONF_DECISION_MODEL,
+                default=defaults.get(CONF_DECISION_MODEL, models[0] if models else DEFAULT_CHAT_MODEL),
+            ): SelectSelector(
+                SelectSelectorConfig(
+                    options=_model_options(models),
+                    custom_value=True,
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        }
+    )
 
 
 def _llm_api_options(hass) -> list[SelectOptionDict]:

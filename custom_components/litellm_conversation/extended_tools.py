@@ -64,6 +64,7 @@ class CallServiceTool(llm.Tool):
     """Call any Home Assistant service."""
 
     name = "call_service"
+    integration = DOMAIN
     description = (
         "Call a Home Assistant service. Use for actions not covered by other "
         "tools, e.g. 'light.turn_on' with entity_id and brightness. "
@@ -117,6 +118,7 @@ class GetHistoryTool(llm.Tool):
     """Query recorder history for an entity."""
 
     name = "get_history"
+    integration = DOMAIN
     description = (
         "Get the state history of an entity over a time range. hours_ago is "
         "how far back to look (max 168 = 7 days, default 24). Returns a list "
@@ -178,6 +180,7 @@ class FetchUrlTool(llm.Tool):
     """Fetch content from an external URL."""
 
     name = "fetch_url"
+    integration = DOMAIN
     description = (
         "HTTP GET an external URL and return its body (JSON or text, "
         "truncated to 100KB). Only public http/https URLs are allowed — "
@@ -240,6 +243,7 @@ class AnalyzeCameraTool(llm.Tool):
     """Snapshot a camera and answer a question about the image."""
 
     name = "analyze_camera"
+    integration = DOMAIN
     description = (
         "Take a snapshot from a camera and answer a question about what it "
         "currently shows (e.g. 'Is there a package by the front door?'). "
@@ -345,6 +349,7 @@ class GetCalendarEventsTool(llm.Tool):
     """Read upcoming events from a calendar entity."""
 
     name = "get_calendar_events"
+    integration = DOMAIN
     description = (
         "Get upcoming events from a calendar. entity_id must be a calendar "
         "entity; days_ahead is how many days to look ahead (default 7, max 30)."
@@ -396,6 +401,7 @@ class AddTodoItemTool(llm.Tool):
     """Add an item to a todo/shopping list."""
 
     name = "add_todo_item"
+    integration = DOMAIN
     description = (
         "Add an item to a to-do or shopping list. entity_id must be a todo "
         "entity (e.g. todo.shopping_list); item is the item text. Optional: "

@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 import openai
 import voluptuous as vol
-from voluptuous_openapi import convert
 
 from homeassistant.components import conversation
 from homeassistant.config_entries import ConfigSubentry
@@ -42,6 +41,15 @@ from .const import (
     REQUEST_METADATA_TAGS,
     SIGNAL_USAGE_UPDATED,
 )
+
+# HA 2026.9 moved schema handling to probatio: llm.selector_serializer now
+# defers with probatio's UNSUPPORTED sentinel, which voluptuous_openapi doesn't
+# recognize and would hand back as the "schema". Each HA release must use the
+# converter matching its serializer, and probatio ships only with 2026.9+.
+try:
+    from probatio import to_openapi as schema_to_openapi
+except ImportError:  # HA < 2026.9
+    from voluptuous_openapi import convert as schema_to_openapi
 
 if TYPE_CHECKING:
     from . import LiteLLMConfigEntry
@@ -91,7 +99,7 @@ def _build_request_params(
         create_params["tools"] = tools
 
     if structure is not None and structure_name is not None:
-        output_schema = convert(structure, custom_serializer=llm.selector_serializer)
+        output_schema = schema_to_openapi(structure, custom_serializer=llm.selector_serializer)
         # Omit `strict` — not supported by Bedrock and many non-OpenAI providers.
         create_params["response_format"] = {
             "type": "json_schema",
@@ -157,7 +165,7 @@ def _raise_for_api_error(err: openai.OpenAIError, model: str) -> NoReturn:
 
 def _format_tool(tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None) -> dict[str, Any]:
     """Format tool specification for Chat Completions API."""
-    schema = convert(tool.parameters, custom_serializer=custom_serializer)
+    schema = schema_to_openapi(tool.parameters, custom_serializer=custom_serializer)
     return {
         "type": "function",
         "function": {

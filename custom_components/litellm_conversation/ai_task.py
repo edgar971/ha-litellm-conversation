@@ -29,20 +29,8 @@ from .const import (
     REQUEST_METADATA_TAGS,
     SIGNAL_USAGE_UPDATED,
 )
-from .entity import LiteLLMBaseLLMEntity, _raise_for_api_error
-
-# Decision models (ai_task.evaluate via the proxy's /v1/systemone endpoint)
-# need HA 2026.11+, where homeassistant.components.ai_task.evaluation landed.
-# On older cores we degrade gracefully: the config flow hides the subentry
-# type and any pre-existing decision subentries are skipped at setup, so an
-# install downgraded below 2026.11 keeps working for every other platform.
-try:
-    from homeassistant.components.ai_task import evaluation as _evaluation_module
-
-    _HAS_EVALUATION = True
-except ImportError:  # HA < 2026.11: no ai_task.evaluation module
-    _evaluation_module = None
-    _HAS_EVALUATION = False
+from .entity import LiteLLMBaseLLMEntity, _raise_for_api_error, async_attachment_data_urls
+from .util import HAS_EVALUATION, evaluation_module
 
 # EVALUATE exists only on HA 2026.11+; getattr keeps this module importable
 # (and the flag simply absent from supported_features) on older cores.
@@ -60,7 +48,7 @@ async def async_setup_entry(
     """Set up AI Task entities from a config entry."""
     for subentry in config_entry.subentries.values():
         if subentry.subentry_type == "ai_task_decision":
-            if not _HAS_EVALUATION:
+            if not HAS_EVALUATION:
                 LOGGER.warning(
                     "Skipping decision subentry '%s': decision models need Home"
                     " Assistant 2026.11 or newer",
@@ -437,21 +425,21 @@ def parse_decision_response(payload: Any, questions: dict[str, Any]) -> dict[str
             noul = answer.get("noul")
             if not isinstance(noul, (int, float)) or isinstance(noul, bool):
                 raise ValueError(f"answer for '{qid}' has no numeric noul")
-            result[qid] = _evaluation_module.NoulAnswer(noul=float(noul))  # pyright: ignore[reportOptionalMemberAccess]
+            result[qid] = evaluation_module.NoulAnswer(noul=float(noul))  # pyright: ignore[reportOptionalMemberAccess]
         elif q_type == "choice":
             choice = answer.get("choice")
             if not isinstance(choice, str):
                 raise ValueError(f"answer for '{qid}' has no string choice")
             if choice not in question.get("criteria", ()):
                 raise ValueError(f"answer for '{qid}' is not one of the question's options")
-            result[qid] = _evaluation_module.ChoiceAnswer(  # pyright: ignore[reportOptionalMemberAccess]
+            result[qid] = evaluation_module.ChoiceAnswer(  # pyright: ignore[reportOptionalMemberAccess]
                 choice=choice, probabilities=_probabilities(qid, answer.get("probabilities"))
             )
         elif q_type == "score":
             score = answer.get("score")
             if not isinstance(score, (int, float)) or isinstance(score, bool):
                 raise ValueError(f"answer for '{qid}' has no numeric score")
-            result[qid] = _evaluation_module.ScoreAnswer(  # pyright: ignore[reportOptionalMemberAccess]
+            result[qid] = evaluation_module.ScoreAnswer(  # pyright: ignore[reportOptionalMemberAccess]
                 score=float(score),
                 probabilities=_score_probabilities(
                     qid, answer.get("probabilities"), len(question.get("criteria", ()))
@@ -460,34 +448,6 @@ def parse_decision_response(payload: Any, questions: dict[str, Any]) -> dict[str
         else:
             raise ValueError(f"unsupported question type {q_type!r} for '{qid}'")
     return result
-
-
-async def _decision_attachment_urls(
-    hass: HomeAssistant, attachments: list[Any] | None
-) -> list[str]:
-    """Encode evaluation attachments as data URLs for the `images` field.
-
-    /v1/systemone takes images as URLs or data URLs (OpenAI and Cloudflare
-    Clef deployments). Only images are supported here — same rule as the chat
-    vision path; a PDF attachment fails with a clear message rather than
-    being silently dropped.
-    """
-    if not attachments:
-        return []
-
-    def _encode(path) -> str:
-        return base64.b64encode(path.read_bytes()).decode("utf-8")
-
-    urls: list[str] = []
-    for attachment in attachments:
-        if not attachment.mime_type.startswith("image/"):
-            raise HomeAssistantError(
-                "Decision evaluations support only image attachments; "
-                f"{attachment.path.name} is {attachment.mime_type}"
-            )
-        b64 = await hass.async_add_executor_job(_encode, attachment.path)
-        urls.append(f"data:{attachment.mime_type};base64,{b64}")
-    return urls
 
 
 class LiteLLMDecisionEntity(
@@ -512,11 +472,11 @@ class LiteLLMDecisionEntity(
     @override
     async def _async_evaluate(self, task) -> Any:  # EvaluationTaskResult on HA 2026.11+
         """Answer structured questions through the LiteLLM proxy."""
-        if not _HAS_EVALUATION:  # defensive; setup skips this entity otherwise
+        if not HAS_EVALUATION:  # defensive; setup skips this entity otherwise
             raise HomeAssistantError("Decision models need Home Assistant 2026.11 or newer")
 
         model = self._decision_model
-        image_urls = await _decision_attachment_urls(self.hass, task.attachments)
+        image_urls = await async_attachment_data_urls(self.hass, task.attachments or [])
         body = build_decision_request(model, task.state, task.questions, image_urls)
 
         try:
@@ -561,6 +521,6 @@ class LiteLLMDecisionEntity(
             len(answers),
             len(image_urls),
         )
-        return _evaluation_module.EvaluationTaskResult(  # pyright: ignore[reportOptionalMemberAccess]
+        return evaluation_module.EvaluationTaskResult(  # pyright: ignore[reportOptionalMemberAccess]
             answers=cast("dict[str, Any]", answers)
         )

@@ -28,7 +28,6 @@ from homeassistant.helpers.selector import (
     TextSelectorType,
 )
 
-from .ai_task import _HAS_EVALUATION
 from .const import (
     CONF_BASE_URL,
     CONF_CHAT_MODEL,
@@ -46,7 +45,7 @@ from .schemas import (
     _clean_conversation_data,
     _llm_api_options,
 )
-from .util import normalize_base_url
+from .util import HAS_EVALUATION, normalize_base_url
 
 API_KEY_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 
@@ -279,7 +278,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
             "stt": LiteLLMSTTSubentryFlowHandler,
             "tts": LiteLLMTTSSubentryFlowHandler,
         }
-        if _HAS_EVALUATION:
+        if HAS_EVALUATION:
             types["ai_task_decision"] = LiteLLMDecisionSubentryFlowHandler
         return types
 

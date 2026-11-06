@@ -224,14 +224,14 @@ def test_decision_schema_keeps_the_saved_model_on_reconfigure() -> None:
 
 @pytest.mark.parametrize("has_evaluation", [True, False])
 def test_decision_subentry_type_follows_core_support(has_evaluation: bool) -> None:
-    with patch(f"{CONFIG_FLOW}._HAS_EVALUATION", has_evaluation):
+    with patch(f"{CONFIG_FLOW}.HAS_EVALUATION", has_evaluation):
         types = LiteLLMConfigFlow.async_get_supported_subentry_types(MagicMock())
     assert ("ai_task_decision" in types) is has_evaluation
 
 
 def test_every_subentry_type_is_translated() -> None:
     """A type missing here renders blank buttons and raw keys in the UI."""
-    with patch(f"{CONFIG_FLOW}._HAS_EVALUATION", True):
+    with patch(f"{CONFIG_FLOW}.HAS_EVALUATION", True):
         types = LiteLLMConfigFlow.async_get_supported_subentry_types(MagicMock())
     strings = json.loads(Path(COMPONENT_DIR, "strings.json").read_text())["config_subentries"]
     for subentry_type in types:

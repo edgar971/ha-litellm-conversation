@@ -176,20 +176,21 @@ def _format_tool(tool: llm.Tool, custom_serializer: Callable[[Any], Any] | None)
     }
 
 
-async def async_prepare_attachment_parts(
+async def async_attachment_data_urls(
     hass: HomeAssistant,
     attachments: list[conversation.Attachment],
-) -> list[dict[str, Any]]:
-    """Encode image attachments as Chat Completions image_url content parts.
+) -> list[str]:
+    """Encode image attachments as data URLs.
 
     Only images are supported: Bedrock (and several other providers) do not
-    reliably accept PDFs on the Chat Completions path.
+    reliably accept PDFs on the Chat Completions path, and a rejected
+    attachment fails clearly rather than being silently dropped.
     """
 
     def _encode(path: Path) -> str:
         return base64.b64encode(path.read_bytes()).decode("utf-8")
 
-    parts: list[dict[str, Any]] = []
+    urls: list[str] = []
     for attachment in attachments:
         if not attachment.mime_type.startswith("image/"):
             raise HomeAssistantError(
@@ -197,13 +198,19 @@ async def async_prepare_attachment_parts(
                 f"{attachment.path.name} is {attachment.mime_type}"
             )
         b64 = await hass.async_add_executor_job(_encode, attachment.path)
-        parts.append(
-            {
-                "type": "image_url",
-                "image_url": {"url": f"data:{attachment.mime_type};base64,{b64}"},
-            }
-        )
-    return parts
+        urls.append(f"data:{attachment.mime_type};base64,{b64}")
+    return urls
+
+
+async def async_prepare_attachment_parts(
+    hass: HomeAssistant,
+    attachments: list[conversation.Attachment],
+) -> list[dict[str, Any]]:
+    """Encode image attachments as Chat Completions image_url content parts."""
+    return [
+        {"type": "image_url", "image_url": {"url": url}}
+        for url in await async_attachment_data_urls(hass, attachments)
+    ]
 
 
 def _convert_content_to_messages(

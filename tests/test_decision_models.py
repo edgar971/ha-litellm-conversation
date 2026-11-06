@@ -36,9 +36,9 @@ def eval_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     """
     # Entity-level tests exercise the evaluate path end to end; setup gating
     # is covered separately in its own tests.
-    monkeypatch.setattr(ai_task_module, "_HAS_EVALUATION", True)
-    if ai_task_module._evaluation_module is not None:
-        return ai_task_module._evaluation_module
+    monkeypatch.setattr(ai_task_module, "HAS_EVALUATION", True)
+    if ai_task_module.evaluation_module is not None:
+        return ai_task_module.evaluation_module
 
     fake = ModuleType("fake_evaluation")
 
@@ -64,7 +64,7 @@ def eval_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     fake.ChoiceAnswer = ChoiceAnswer  # pyright: ignore[reportAttributeAccessIssue]
     fake.ScoreAnswer = ScoreAnswer  # pyright: ignore[reportAttributeAccessIssue]
     fake.EvaluationTaskResult = EvaluationTaskResult  # pyright: ignore[reportAttributeAccessIssue]
-    monkeypatch.setattr(ai_task_module, "_evaluation_module", fake)
+    monkeypatch.setattr(ai_task_module, "evaluation_module", fake)
     return fake
 
 
@@ -417,7 +417,7 @@ async def test_decision_evaluate_rejects_non_image_attachment(
     post = AsyncMock()
     entity = _entity(hass, dict(_DECISION_SUBENTRY), post)
 
-    with pytest.raises(HomeAssistantError, match="only image attachments"):
+    with pytest.raises(HomeAssistantError, match="Only image attachments"):
         await entity._async_evaluate(_task(attachments=[attachment]))
     post.assert_not_awaited()
 
@@ -562,7 +562,7 @@ async def test_setup_skips_decision_subentries_without_evaluation(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """On HA < 2026.11 decision subentries are skipped with a warning, not crashed on."""
-    monkeypatch.setattr(ai_task_module, "_HAS_EVALUATION", False)
+    monkeypatch.setattr(ai_task_module, "HAS_EVALUATION", False)
     add_entities = MagicMock()
     entry = _config_entry(["ai_task_data", "ai_task_decision"])
 
@@ -577,7 +577,7 @@ async def test_setup_adds_decision_entity_with_evaluation(
     hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """On HA 2026.11+ a decision subentry yields exactly one LiteLLMDecisionEntity."""
-    monkeypatch.setattr(ai_task_module, "_HAS_EVALUATION", True)
+    monkeypatch.setattr(ai_task_module, "HAS_EVALUATION", True)
     add_entities = MagicMock()
     entry = _config_entry(["ai_task_decision"])
 

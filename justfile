@@ -36,3 +36,21 @@ test:
 # Set up the local HA dev environment (writes config/, links custom_components)
 dev:
     ./scripts/develop
+
+# Render changelog sections with git-cliff (cliff.toml). Prints to stdout —
+# paste the rendered section into CHANGELOG.md when cutting a release.
+# Examples: `just changelog` (unreleased), `just changelog v1.8.0..HEAD`.
+changelog range="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    args="{{ if range == "" { "--unreleased" } else { range } }}"
+    if command -v git-cliff >/dev/null; then
+        git-cliff $args
+    elif command -v uvx >/dev/null; then
+        uvx --from git-cliff git-cliff $args
+    else
+        echo "git-cliff not found. Install it ('brew install git-cliff') or install uv," >&2
+        echo "then re-run: just changelog {{ if range == "" { "--unreleased" } else { range } }}" >&2
+        exit 1
+    fi
+

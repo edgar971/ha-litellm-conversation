@@ -22,6 +22,7 @@ from custom_components.litellm_conversation.ai_task import (
     build_decision_request,
     parse_decision_response,
 )
+from custom_components.litellm_conversation.const import DECISION_EVALUATION_TIMEOUT
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
@@ -81,7 +82,7 @@ _QUESTIONS = {
 
 def test_build_decision_request_minimal() -> None:
     """Model, state and questions are sent; LiteLLM body fields ride along."""
-    body = build_decision_request({"decision_model": "clef"}, "ticket text", _QUESTIONS)
+    body = build_decision_request("clef", "ticket text", _QUESTIONS)
     assert body["model"] == "clef"
     assert body["state"] == "ticket text"
     assert body["questions"]["is_refund"] == {
@@ -94,26 +95,38 @@ def test_build_decision_request_minimal() -> None:
     assert "images" not in body
 
 
-def test_build_decision_request_filters_unknown_question_fields() -> None:
-    """Only type/instructions/criteria cross the wire; unknown fields are dropped."""
+def test_build_decision_request_drops_unknown_question_fields_loudly(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Only type/instructions/criteria cross the wire, and a dropped field is logged.
+
+    A field core adds later could change what the question means, so dropping
+    it must not be silent.
+    """
     questions = {"q": {"type": "noul", "instructions": "i", "secret": "x"}}
-    body = build_decision_request({"decision_model": "m"}, "s", questions)
+    body = build_decision_request("m", "s", questions)
     assert body["questions"]["q"] == {"type": "noul", "instructions": "i"}
+    assert "secret" in caplog.text
+
+
+def test_build_decision_request_known_fields_log_nothing(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    build_decision_request("m", "s", _QUESTIONS)
+    assert caplog.text == ""
 
 
 def test_build_decision_request_images_and_object_state() -> None:
     """Images attach as the `images` list; state may be any JSON value."""
     urls = ["data:image/png;base64,QUJD"]
-    body = build_decision_request(
-        {"decision_model": "m"}, {"photo": "abc"}, {"q": {"type": "noul"}}, urls
-    )
+    body = build_decision_request("m", {"photo": "abc"}, {"q": {"type": "noul"}}, urls)
     assert body["images"] == urls
     assert body["state"] == {"photo": "abc"}
 
 
 def test_build_decision_request_empty_questions_raises() -> None:
     with pytest.raises(ValueError, match="at least one question"):
-        build_decision_request({"decision_model": "m"}, "s", {})
+        build_decision_request("m", "s", {})
 
 
 def test_parse_decision_response_all_types(eval_module: ModuleType) -> None:
@@ -280,6 +293,32 @@ async def test_decision_evaluate_happy_path(
     assert set(kwargs["body"]["questions"]) == {"is_refund", "urgency", "frustration"}
 
 
+async def test_decision_evaluate_sends_the_stripped_model(
+    hass: HomeAssistant, eval_module: ModuleType
+) -> None:
+    """Custom-typed model names can carry whitespace; the proxy must not see it."""
+    post = AsyncMock(return_value={"answers": _VALID_ANSWERS})
+    entity = _entity(hass, {"decision_model": " clef "}, post)
+
+    await entity._async_evaluate(_task())
+
+    assert post.await_args.kwargs["body"]["model"] == "clef"
+
+
+async def test_decision_evaluate_does_not_retry(
+    hass: HomeAssistant, eval_module: ModuleType
+) -> None:
+    """The SDK's default retries would turn the 60s budget into minutes and re-bill."""
+    post = AsyncMock(return_value={"answers": _VALID_ANSWERS})
+    entity = _entity(hass, dict(_DECISION_SUBENTRY), post)
+
+    await entity._async_evaluate(_task())
+
+    entity.client.with_options.assert_called_once_with(
+        timeout=DECISION_EVALUATION_TIMEOUT, max_retries=0
+    )
+
+
 async def test_decision_evaluate_encodes_image_attachments(
     hass: HomeAssistant, eval_module: ModuleType, tmp_path: Path
 ) -> None:
@@ -323,6 +362,17 @@ async def test_decision_evaluate_connection_error_marks_unavailable(
     with pytest.raises(HomeAssistantError):
         await entity._async_evaluate(_task())
     assert entity.available is False
+
+
+async def test_decision_evaluate_timeout_keeps_entity_available(
+    hass: HomeAssistant, eval_module: ModuleType
+) -> None:
+    """A slow model is not an unreachable proxy (APITimeoutError is a connection error)."""
+    err = openai.APITimeoutError(request=MagicMock())
+    entity = _entity(hass, dict(_DECISION_SUBENTRY), AsyncMock(side_effect=err))
+    with pytest.raises(HomeAssistantError):
+        await entity._async_evaluate(_task())
+    assert entity.available is True
 
 
 async def test_decision_evaluate_key_denied_raises_cleanly(

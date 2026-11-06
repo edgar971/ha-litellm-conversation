@@ -344,7 +344,7 @@ class LiteLLMAITaskEntity(
 
 
 def build_decision_request(
-    subentry_data: dict[str, Any],
+    model: str,
     state: Any,
     questions: dict[str, Any],
     image_urls: list[str] | None = None,
@@ -353,19 +353,22 @@ def build_decision_request(
 
     Pure helper so the mapping contract is unit-testable without network.
     HA question dicts ({type, instructions, criteria}) are System-One-shaped
-    already; we copy only those keys so unknown future fields fail at the
-    proxy (with drop_params) instead of being silently forwarded.
+    already. Only those keys are copied, so anything else never reaches the
+    proxy; core's schema allows no others today, and a field it adds later
+    could change the question's meaning, so dropping one logs a warning.
     """
     if not questions:
         raise ValueError("at least one question is required")
 
+    forwarded = ("type", "instructions", "criteria")
+    for qid, question in questions.items():
+        if dropped := set(question) - set(forwarded):
+            LOGGER.warning("Dropping unknown fields from question '%s': %s", qid, sorted(dropped))
+
     body: dict[str, Any] = {
-        "model": subentry_data[CONF_DECISION_MODEL],
+        "model": model,
         "state": state,
-        "questions": {
-            qid: {k: q[k] for k in ("type", "instructions", "criteria") if k in q}
-            for qid, q in questions.items()
-        },
+        "questions": {qid: {k: q[k] for k in forwarded if k in q} for qid, q in questions.items()},
     }
     if image_urls:
         body["images"] = list(image_urls)
@@ -491,12 +494,18 @@ class LiteLLMDecisionEntity(
 
         model = self._decision_model
         image_urls = await _decision_attachment_urls(self.hass, task.attachments)
-        body = build_decision_request(self.subentry.data, task.state, task.questions, image_urls)
+        body = build_decision_request(model, task.state, task.questions, image_urls)
 
         try:
-            payload = await self.client.with_options(timeout=DECISION_EVALUATION_TIMEOUT).post(
-                "/systemone", body=body, cast_to=dict
-            )
+            # max_retries=0: the SDK default would multiply the timeout budget
+            # and could bill a retried evaluation again.
+            payload = await self.client.with_options(
+                timeout=DECISION_EVALUATION_TIMEOUT, max_retries=0
+            ).post("/systemone", body=body, cast_to=dict)
+        except openai.APITimeoutError as err:
+            # A subclass of APIConnectionError, but a slow model doesn't mean
+            # the proxy is unreachable, so the entity stays available.
+            _raise_for_api_error(err, model)
         except openai.APIConnectionError as err:
             self._set_available(False)
             _raise_for_api_error(err, model)

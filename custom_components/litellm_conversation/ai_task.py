@@ -128,10 +128,10 @@ def build_image_request(subentry_data: dict[str, Any], instructions: str) -> dic
 
 
 def _normalize_usage(raw: Any) -> dict[str, int] | None:
-    """Map an image response `usage` onto the token keys the daily sensors read.
+    """Map a raw-post response `usage` onto the token keys the daily sensors read.
 
-    OpenAI's images API reports input_tokens/output_tokens while LiteLLM
-    usually normalizes to prompt_tokens/completion_tokens; accept both and
+    OpenAI's images API and /v1/systemone report input_tokens/output_tokens
+    while LiteLLM usually normalizes to prompt_tokens/completion_tokens; accept both and
     emit the sensor-facing spelling. Returns None when the response carries
     no usable usage (many diffusion providers don't).
     """
@@ -506,6 +506,16 @@ class LiteLLMDecisionEntity(
             # HomeAssistantError like every other raw-post path.
             _raise_for_api_error(err, model)
         self._set_available(True)
+
+        # AGENTS.md conv. 7: dispatch before parsing, since the proxy already
+        # ran the model even if the answers turn out to be unusable.
+        usage = _normalize_usage(payload.get("usage") if isinstance(payload, dict) else None)
+        if usage:
+            async_dispatcher_send(
+                self.hass,
+                f"{SIGNAL_USAGE_UPDATED}_{self.entry.entry_id}",
+                {"model": model, **usage},
+            )
 
         try:
             answers = parse_decision_response(payload, task.questions)

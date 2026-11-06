@@ -11,7 +11,7 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import openai
 import pytest
@@ -348,6 +348,75 @@ async def test_decision_evaluate_malformed_payload_raises_cleanly(
     entity = _entity(hass, dict(_DECISION_SUBENTRY), AsyncMock(return_value={"foo": "bar"}))
     with pytest.raises(HomeAssistantError, match="Unexpected LiteLLM decision response"):
         await entity._async_evaluate(_task())
+
+
+_VALID_ANSWERS = {
+    "is_refund": {"type": "noul", "noul": 0.9},
+    "urgency": {"type": "choice", "choice": "high"},
+    "frustration": {"type": "score", "score": 0.4},
+}
+_USAGE_SIGNAL = "litellm_conversation_usage_updated_test_entry"
+_DISPATCH = "custom_components.litellm_conversation.ai_task.async_dispatcher_send"
+
+
+async def test_decision_evaluate_dispatches_usage(
+    hass: HomeAssistant, eval_module: ModuleType
+) -> None:
+    """/systemone reports input/output tokens; the daily sensors read prompt/completion."""
+    payload = {"answers": _VALID_ANSWERS, "usage": {"input_tokens": 391, "output_tokens": 67}}
+    entity = _entity(hass, dict(_DECISION_SUBENTRY), AsyncMock(return_value=payload))
+
+    with patch(_DISPATCH) as send:
+        await entity._async_evaluate(_task())
+
+    send.assert_called_once_with(
+        hass,
+        _USAGE_SIGNAL,
+        {"model": "clef", "prompt_tokens": 391, "completion_tokens": 67, "total_tokens": 458},
+    )
+
+
+async def test_decision_evaluate_without_usage_skips_dispatch(
+    hass: HomeAssistant, eval_module: ModuleType
+) -> None:
+    """No usage in the response means no zero-token request row."""
+    entity = _entity(
+        hass, dict(_DECISION_SUBENTRY), AsyncMock(return_value={"answers": _VALID_ANSWERS})
+    )
+
+    with patch(_DISPATCH) as send:
+        await entity._async_evaluate(_task())
+
+    send.assert_not_called()
+
+
+async def test_decision_evaluate_counts_usage_when_answers_are_malformed(
+    hass: HomeAssistant, eval_module: ModuleType
+) -> None:
+    """The proxy already ran the model, so an unparseable answer still counts."""
+    payload = {"answers": {}, "usage": {"input_tokens": 10, "output_tokens": 2}}
+    entity = _entity(hass, dict(_DECISION_SUBENTRY), AsyncMock(return_value=payload))
+
+    with patch(_DISPATCH) as send, pytest.raises(HomeAssistantError, match="Unexpected LiteLLM"):
+        await entity._async_evaluate(_task())
+
+    send.assert_called_once_with(
+        hass,
+        _USAGE_SIGNAL,
+        {"model": "clef", "prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12},
+    )
+
+
+async def test_decision_evaluate_non_object_payload_raises_cleanly(
+    hass: HomeAssistant, eval_module: ModuleType
+) -> None:
+    """Reading usage must not turn a non-object response into an AttributeError."""
+    entity = _entity(hass, dict(_DECISION_SUBENTRY), AsyncMock(return_value=["nope"]))
+
+    with patch(_DISPATCH) as send, pytest.raises(HomeAssistantError, match="Unexpected LiteLLM"):
+        await entity._async_evaluate(_task())
+
+    send.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

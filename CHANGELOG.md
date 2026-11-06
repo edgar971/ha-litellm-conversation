@@ -8,6 +8,18 @@ via [git-cliff](https://git-cliff.org) and Conventional Commits
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-11-06
+
+### Added
+
+- AI Task decision models: `ai_task.evaluate` via LiteLLM `/v1/systemone` (a new decision model subentry; needs Home Assistant 2026.11+ and LiteLLM >= 1.104.2), with yes/no, choice and score questions plus image attachments.
+- Home Assistant Marketplace readiness: manifest `categories` and an updated README.
+
+### Fixed
+
+- **Tools and structured AI tasks failed on Home Assistant 2026.9+.** Home Assistant moved schema handling to probatio, and tool and structure schemas could no longer be encoded as JSON. The integration now uses the converter matching the running release.
+- Extended tools record their integration, which Home Assistant enforces from 2027.10.
+
 ## [2.1.0] - 2026-11-06
 
 ### Added

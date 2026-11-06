@@ -61,9 +61,7 @@ async def async_prepare_attachment_parts(
                 f"Only image attachments are supported; "
                 f"{attachment.path.name} is {attachment.mime_type}"
             )
-        b64 = await hass.async_add_executor_job(
-            _encode, attachment.path, attachment.mime_type
-        )
+        b64 = await hass.async_add_executor_job(_encode, attachment.path, attachment.mime_type)
         parts.append(
             {
                 "type": "image_url",
@@ -99,10 +97,12 @@ def _convert_content_to_messages(
 In the `elif content.content:` branch, when this is the LAST content item, it's a user message, and parts were provided, emit multi-part content:
 
 ```python
-messages.append({
-    "role": content.role,
-    "content": [{"type": "text", "text": content.content}, *last_user_attachment_parts],
-})
+messages.append(
+    {
+        "role": content.role,
+        "content": [{"type": "text", "text": content.content}, *last_user_attachment_parts],
+    }
+)
 ```
 
 (Match core: attachments ride on the last user message only.)
@@ -112,16 +112,9 @@ In `_async_handle_chat_log`, before the first `_convert_content_to_messages` cal
 ```python
 attachment_parts: list[dict[str, Any]] | None = None
 last_content = chat_log.content[-1] if chat_log.content else None
-if (
-    isinstance(last_content, conversation.UserContent)
-    and last_content.attachments
-):
-    attachment_parts = await async_prepare_attachment_parts(
-        self.hass, last_content.attachments
-    )
-create_params["messages"] = _convert_content_to_messages(
-    chat_log.content, attachment_parts
-)
+if isinstance(last_content, conversation.UserContent) and last_content.attachments:
+    attachment_parts = await async_prepare_attachment_parts(self.hass, last_content.attachments)
+create_params["messages"] = _convert_content_to_messages(chat_log.content, attachment_parts)
 ```
 
 The loop's follow-up rebuild (`create_params["messages"] = _convert_content_to_messages(chat_log.content)` at the bottom of the tool loop) must ALSO pass `attachment_parts` — otherwise the image vanishes on the second tool iteration and the model answers from memory. 
@@ -136,8 +129,7 @@ Run full suite: `python -m pytest tests/ -q` → all pass. Commit: `feat: pass i
 
 ```python
 _attr_supported_features = (
-    ai_task.AITaskEntityFeature.GENERATE_DATA
-    | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS
+    ai_task.AITaskEntityFeature.GENERATE_DATA | ai_task.AITaskEntityFeature.SUPPORT_ATTACHMENTS
 )
 ```
 
@@ -176,9 +168,7 @@ class AnalyzeCameraTool(llm.Tool):
         "shows (e.g. 'Is there a package by the door?'). entity_id must be a "
         "camera entity; question is what you want to know about the image."
     )
-    parameters = vol.Schema(
-        {vol.Required("entity_id"): str, vol.Required("question"): str}
-    )
+    parameters = vol.Schema({vol.Required("entity_id"): str, vol.Required("question"): str})
 ```
 
 `async_call` flow:
@@ -202,13 +192,15 @@ Schema: `entity_id` (required), `days_ahead` (optional int 1–30, default 7). G
 
 ```python
 result = await hass.services.async_call(
-    "calendar", "get_events",
+    "calendar",
+    "get_events",
     {
         "entity_id": entity_id,
         "start_date_time": dt_util.now().isoformat(),
         "end_date_time": (dt_util.now() + timedelta(days=days)).isoformat(),
     },
-    blocking=True, return_response=True,
+    blocking=True,
+    return_response=True,
 )
 ```
 

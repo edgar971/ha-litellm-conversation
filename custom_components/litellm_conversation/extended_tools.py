@@ -474,9 +474,7 @@ class ExtendedToolsAPI(llm.API):
 
         return llm.APIInstance(
             api=self,
-            api_prompt=(
-                "You can interact with Home Assistant using these tools: " + tools_blurb
-            ),
+            api_prompt=("You can interact with Home Assistant using these tools: " + tools_blurb),
             llm_context=llm_context,
             tools=extended_tools,
         )

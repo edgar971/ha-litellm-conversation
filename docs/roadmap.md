@@ -2,7 +2,7 @@
 
 Current state, priorities, and future ideas for ha-litellm-conversation.
 
-## Current State (v1.6.2)
+## Current State (v2.0.0)
 
 - ✅ Config flow (URL + API key, validates via /v1/models; reauth + reconfigure; masked key inputs)
 - ✅ Conversation agent (streaming, tool calling, reasoning/thinking content via Chat Completions)
@@ -12,11 +12,25 @@ Current state, priorities, and future ideas for ha-litellm-conversation.
 - ✅ Usage sensors (4 daily diagnostic counters, restart-safe via RestoreSensor)
 - ✅ Web search + guardrails passthrough, reasoning effort (body param)
 - ✅ Extended Tools LLM API: call_service (domain blocklist + response data), get_history, fetch_url (SSRF guard), **analyze_camera (nested vision call, usage-tracked), get_calendar_events, add_todo_item** — entity tools gated on exposed-to-Assist
-- ✅ Diagnostics (redacted), dev container, pytest suite (162 tests), CI (lint + tests + hassfest + HACS)
+- ✅ Diagnostics (redacted), dev container, pytest suite (112 tests), CI (lint + tests + hassfest + HACS)
 - ✅ Entities flip unavailable on proxy connection errors (logged once per transition)
-- ✅ Long-term memory: remember/forget/list_memories tools, per-turn prompt injection, todo.*_memories management UI, remember/forget services, diagnostics export (50 memories x 300 chars cap)
-- ✅ Dreaming: background memory consolidation (transcript buffer + capture switch, dream service w/ dry_run + model override + activity digest, last-dream sensor, completion event, nightly blueprint)
 - ✅ HACS distribution working, tagged releases
+
+### Removed in v2.0.0 (breaking)
+
+Long-term memory and dreaming (background consolidation) were removed to keep
+the integration a focused proxy bridge. For that capability, use HA's [MCP
+integration](https://www.home-assistant.io/integrations/mcp/) with any
+memory/RAG MCP server — it plugs into these agents via the LLM API selector
+with no code here.
+
+**Upgrade guidance:** after updating, orphaned entities
+(`select.*_dream_model`, `switch.*_transcript_capture`, `sensor.*_last_dream`,
+`todo.*_memories`) are cleaned up automatically on the first restart — no
+manual entity removal needed. Automations calling `litellm_conversation.dream`,
+`.clear_transcripts`, `.refresh_models`, `.remember`, or `.forget` will fail
+until edited; the nightly-dream blueprint is gone. The transcript buffer and
+memory store files in `.storage/` become orphaned data HA garbage-collects.
 
 ## Remaining Ideas (rough priority)
 
@@ -60,8 +74,8 @@ diagnostic attribute or debug log. Small; mostly waiting on a real need.
 ## Decided / historical
 
 - **Extended tools, web search, STT, TTS, usage sensors, guardrails**: shipped (v1.2–v1.4).
-- **Long-term memory (tools + todo UI + services)**: shipped (v1.5.0).
-- **Dreaming (background consolidation, transcript buffer, blueprint)**: shipped (v1.6.x).
+- **Long-term memory (tools + todo UI + services)**: shipped v1.5.0, **removed in v2.0.0** — use HA's MCP integration with a memory MCP server instead.
+- **Dreaming (background consolidation, transcript buffer, blueprint)**: shipped v1.6.x, **removed in v2.0.0**.
 - **AI Task attachments / vision, camera-calendar-todo tools**: shipped (v1.4.0).
 - **Code interpreter**: rejected — Responses-API-only; repo uses Chat Completions for Bedrock.
 - **Model fallback**: rejected client-side — the LiteLLM proxy handles routing/fallback server-side.

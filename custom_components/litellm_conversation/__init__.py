@@ -27,10 +27,8 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 PLATFORMS = (
     Platform.CONVERSATION,
     Platform.AI_TASK,
-    Platform.SELECT,
     Platform.SENSOR,
     Platform.STT,
-    Platform.SWITCH,
     Platform.TODO,
     Platform.TTS,
 )
@@ -54,19 +52,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> b
         http_client=get_async_client(hass),
     )
 
-    # Validate connection at setup, and keep the model list around so the
-    # dream-model select entity doesn't need a second live /v1/models call.
+    # Validate connection at setup so a bad key/URL surfaces as a reauth /
+    # retry flow instead of a first-message failure.
     try:
-        models_response = await client.with_options(timeout=10.0).models.list()
+        await client.with_options(timeout=10.0).models.list()
     except openai.AuthenticationError as err:
         raise ConfigEntryAuthFailed(err) from err
     except openai.OpenAIError as err:
         raise ConfigEntryNotReady(err) from err
 
     entry.runtime_data = client
-    hass.data.setdefault(DOMAIN, {})[f"{entry.entry_id}_models"] = sorted(
-        m.id for m in models_response.data
-    )
 
     async_register_extended_api(hass, entry)
 
@@ -90,5 +85,4 @@ async def _async_update_listener(hass: HomeAssistant, entry: LiteLLMConfigEntry)
 
 async def async_unload_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> bool:
     """Unload a config entry."""
-    hass.data.get(DOMAIN, {}).pop(f"{entry.entry_id}_models", None)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

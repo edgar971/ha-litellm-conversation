@@ -21,10 +21,6 @@ async def async_get_config_entry_diagnostics(
     """Return diagnostics for a config entry."""
     memory_store = async_get_memory_store(hass)
     await memory_store.async_load()
-    from .transcripts import async_get_transcript_buffer
-
-    buffer = async_get_transcript_buffer(hass)
-    await buffer.async_load()
     return async_redact_data(
         {
             "entry_data": dict(entry.data),
@@ -33,11 +29,6 @@ async def async_get_config_entry_diagnostics(
                 for subentry_id, subentry in entry.subentries.items()
             },
             "memories": [m.as_dict() for m in memory_store.memories],
-            "transcripts": {
-                "capture_enabled": buffer.capture_enabled,
-                "buffered_exchanges": buffer.exchange_count,
-                "last_dream_at": buffer.last_dream_at,
-            },
         },
         TO_REDACT,
     )

@@ -2,7 +2,9 @@
 
 Current state, priorities, and future ideas for ha-litellm-conversation.
 
-## Current State (v2.0.0)
+## Current State (v2.1.x)
+
+- ✅ Spend/budget sensors shipped as v2.1.0; Marketplace readiness (manifest `categories`, HA 2026.11 install docs) landed right after
 
 - ✅ Config flow (URL + API key, validates via /v1/models; reauth + reconfigure; masked key inputs)
 - ✅ Conversation agent (streaming, tool calling, reasoning/thinking content via Chat Completions)

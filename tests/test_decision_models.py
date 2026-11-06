@@ -1,14 +1,13 @@
 """Tests for decision models via /v1/systemone (issue #13).
 
-The HA builds CI installs for predate ai_task.evaluation, so entity/parsing
-tests inject a minimal stand-in module (the real shapes are asserted against
-core's evaluation.py contract: NoulAnswer.noul, ChoiceAnswer.choice/
-probabilities, ScoreAnswer.score/probabilities list, EvaluationTaskResult.answers).
+The test harness can predate ai_task.evaluation, so the eval_module fixture
+falls back to a stand-in that mirrors core's evaluation.py.
 """
 
 from __future__ import annotations
 
 import base64
+from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -29,35 +28,43 @@ from homeassistant.exceptions import HomeAssistantError
 
 @pytest.fixture
 def eval_module(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """Inject a stand-in ai_task.evaluation module with the core dataclass shapes."""
+    """Provide ai_task.evaluation: the real module when importable, else a stand-in.
+
+    The stand-in's fields mirror core exactly, including the required
+    `probabilities`. Keep them in sync: an optional field here once hid a
+    contract bug.
+    """
+    # Entity-level tests exercise the evaluate path end to end; setup gating
+    # is covered separately in its own tests.
+    monkeypatch.setattr(ai_task_module, "_HAS_EVALUATION", True)
+    if ai_task_module._evaluation_module is not None:
+        return ai_task_module._evaluation_module
+
     fake = ModuleType("fake_evaluation")
 
+    @dataclass(slots=True)
     class NoulAnswer:
-        def __init__(self, noul):
-            self.noul = noul
+        noul: float
 
+    @dataclass(slots=True)
     class ChoiceAnswer:
-        def __init__(self, choice, probabilities=None):
-            self.choice = choice
-            self.probabilities = probabilities
+        choice: str
+        probabilities: dict[str, float]
 
+    @dataclass(slots=True)
     class ScoreAnswer:
-        def __init__(self, score, probabilities=None):
-            self.score = score
-            self.probabilities = probabilities
+        score: float
+        probabilities: list[float]
 
+    @dataclass(slots=True)
     class EvaluationTaskResult:
-        def __init__(self, answers):
-            self.answers = answers
+        answers: dict[str, object]
 
     fake.NoulAnswer = NoulAnswer  # pyright: ignore[reportAttributeAccessIssue]
     fake.ChoiceAnswer = ChoiceAnswer  # pyright: ignore[reportAttributeAccessIssue]
     fake.ScoreAnswer = ScoreAnswer  # pyright: ignore[reportAttributeAccessIssue]
     fake.EvaluationTaskResult = EvaluationTaskResult  # pyright: ignore[reportAttributeAccessIssue]
     monkeypatch.setattr(ai_task_module, "_evaluation_module", fake)
-    # Entity-level tests exercise the evaluate path end to end; setup gating
-    # is covered separately in its own tests.
-    monkeypatch.setattr(ai_task_module, "_HAS_EVALUATION", True)
     return fake
 
 
@@ -159,20 +166,76 @@ def test_parse_decision_response_all_types(eval_module: ModuleType) -> None:
     assert answers["frustration"].probabilities == [0.07, 0.91]
 
 
+_SCORE_QUESTION = {"s": {"type": "score", "instructions": "i", "criteria": ["a", "b", "c"]}}
+_CHOICE_QUESTION = {
+    "c": {"type": "choice", "instructions": "i", "criteria": {"low": "l", "high": "h"}}
+}
+
+
 def test_parse_decision_response_score_probs_sorted_numerically(eval_module: ModuleType) -> None:
     """ "10" must sort after "2", not before it."""
-    payload = {
-        "answers": {
-            "frustration": {
-                "type": "score",
-                "score": 0.5,
-                "probabilities": {"0": 0.1, "2": 0.2, "10": 0.3, "1": 0.4},
-            }
-        }
-    }
-    questions = {"frustration": {"type": "score", "instructions": "i"}}
+    levels = 11
+    probabilities = {str(i): i / 100 for i in reversed(range(levels))}
+    payload = {"answers": {"q": {"type": "score", "score": 0.5, "probabilities": probabilities}}}
+    questions = {"q": {"type": "score", "instructions": "i", "criteria": ["x"] * levels}}
     answers = parse_decision_response(payload, questions)
-    assert answers["frustration"].probabilities == [0.1, 0.4, 0.2, 0.3]
+    assert answers["q"].probabilities == [i / 100 for i in range(levels)]
+
+
+@pytest.mark.parametrize(
+    "probabilities",
+    [
+        {"0": 0.1, "2": 0.9},  # a gap would shift 0.9 onto the wrong level
+        {"0": 0.5, "1": 0.5},  # shorter than the scale
+        {"0": 0.2, "1": 0.2, "2": 0.2, "3": 0.4},  # longer than the scale
+    ],
+)
+def test_parse_decision_response_score_probs_must_cover_the_scale(
+    probabilities: dict[str, float], eval_module: ModuleType
+) -> None:
+    payload = {"answers": {"s": {"type": "score", "score": 1, "probabilities": probabilities}}}
+    with pytest.raises(ValueError, match="do not match its 3 levels"):
+        parse_decision_response(payload, _SCORE_QUESTION)
+
+
+@pytest.mark.parametrize(
+    "probabilities",
+    [
+        {"0": None, "1": 0.5, "2": 0.5},
+        {"0": [], "1": 0.5, "2": 0.5},
+        {"0": "high", "1": 0.5, "2": 0.5},
+        {"low": 0.2, "mid": 0.3, "high": 0.5},
+        [0.2, 0.3, 0.5],
+    ],
+)
+def test_parse_decision_response_bad_score_probs_raise_value_error(
+    probabilities: object, eval_module: ModuleType
+) -> None:
+    """Every malformed shape must become ValueError so the clean error path applies."""
+    payload = {"answers": {"s": {"type": "score", "score": 1, "probabilities": probabilities}}}
+    with pytest.raises(ValueError, match="answer for 's'"):
+        parse_decision_response(payload, _SCORE_QUESTION)
+
+
+@pytest.mark.parametrize("probabilities", [{"low": None, "high": 1.0}, ["low", "high"]])
+def test_parse_decision_response_bad_choice_probs_raise_value_error(
+    probabilities: object, eval_module: ModuleType
+) -> None:
+    payload = {
+        "answers": {"c": {"type": "choice", "choice": "high", "probabilities": probabilities}}
+    }
+    with pytest.raises(ValueError, match="answer for 'c'"):
+        parse_decision_response(payload, _CHOICE_QUESTION)
+
+
+@pytest.mark.parametrize("choice", ["medium", "High"])
+def test_parse_decision_response_rejects_choice_outside_criteria(
+    choice: str, eval_module: ModuleType
+) -> None:
+    """Automations branch on these keys, so an unknown one must not pass as success."""
+    payload = {"answers": {"c": {"type": "choice", "choice": choice}}}
+    with pytest.raises(ValueError, match="not one of the question's options"):
+        parse_decision_response(payload, _CHOICE_QUESTION)
 
 
 @pytest.mark.parametrize(
@@ -194,13 +257,19 @@ def test_parse_decision_response_malformed_raises(
         parse_decision_response(payload, questions)
 
 
-def test_parse_decision_response_choice_without_probabilities(eval_module: ModuleType) -> None:
-    """probabilities are optional in the wire format."""
-    payload = {"answers": {"urgency": {"type": "choice", "choice": "low"}}}
-    questions = {"urgency": {"type": "choice", "instructions": "i"}}
-    answers = parse_decision_response(payload, questions)
-    assert answers["urgency"].choice == "low"
-    assert answers["urgency"].probabilities is None
+def test_parse_decision_response_missing_probabilities_stay_typed(
+    eval_module: ModuleType,
+) -> None:
+    """probabilities are optional on the wire but required by core's dataclasses."""
+    payload = {
+        "answers": {
+            "c": {"type": "choice", "choice": "low"},
+            "s": {"type": "score", "score": 1},
+        }
+    }
+    answers = parse_decision_response(payload, {**_CHOICE_QUESTION, **_SCORE_QUESTION})
+    assert answers["c"].probabilities == {}
+    assert answers["s"].probabilities == []
 
 
 # ---------------------------------------------------------------------------

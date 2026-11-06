@@ -377,14 +377,49 @@ def build_decision_request(
     return body
 
 
+def _probabilities(qid: str, raw: Any) -> dict[str, float]:
+    """Return an answer's probabilities as floats; absent ones become empty.
+
+    Core's answer types require probabilities but the wire format doesn't, so
+    an absent distribution stays empty rather than being made up.
+    """
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"answer for '{qid}' has malformed probabilities")
+    try:
+        return {key: float(value) for key, value in raw.items()}
+    except (TypeError, ValueError) as err:
+        raise ValueError(f"answer for '{qid}' has non-numeric probabilities") from err
+
+
+def _score_probabilities(qid: str, raw: Any, levels: int) -> list[float]:
+    """Order score probabilities by level, one entry per level of the scale.
+
+    System One keys them by string index ("0", "1"). Any gap is an error:
+    compacting one would move values onto the wrong level without notice.
+    """
+    probabilities = _probabilities(qid, raw)
+    if not probabilities:
+        return []
+    try:
+        by_level = {int(key): value for key, value in probabilities.items()}
+    except ValueError as err:
+        raise ValueError(f"answer for '{qid}' has non-index-keyed score probabilities") from err
+    if sorted(by_level) != list(range(levels)):
+        raise ValueError(
+            f"answer for '{qid}' has probabilities that do not match its {levels} levels"
+        )
+    return [by_level[level] for level in range(levels)]
+
+
 def parse_decision_response(payload: Any, questions: dict[str, Any]) -> dict[str, Any]:
     """Map a /v1/systemone response's answers onto HA answer objects.
 
     Pure helper so the mapping contract is unit-testable without network.
-    System One returns score probabilities keyed by string index ("0", "1");
-    HA wants them as an ordered list. Raises ValueError on malformed or
-    incomplete payloads (a missing question id means the proxy answered
-    fewer questions than we asked, which callers surface as a clean error).
+    Raises ValueError on malformed or incomplete payloads (a missing question
+    id means the proxy answered fewer questions than we asked, which callers
+    surface as a clean error).
     """
     if not isinstance(payload, dict):
         raise ValueError("expected a JSON object from /v1/systemone")
@@ -407,32 +442,20 @@ def parse_decision_response(payload: Any, questions: dict[str, Any]) -> dict[str
             choice = answer.get("choice")
             if not isinstance(choice, str):
                 raise ValueError(f"answer for '{qid}' has no string choice")
-            raw_probs = answer.get("probabilities")
-            choice_probs = (
-                {k: float(v) for k, v in raw_probs.items() if isinstance(v, (int, float))}
-                if isinstance(raw_probs, dict)
-                else None
-            )
+            if choice not in question.get("criteria", ()):
+                raise ValueError(f"answer for '{qid}' is not one of the question's options")
             result[qid] = _evaluation_module.ChoiceAnswer(  # pyright: ignore[reportOptionalMemberAccess]
-                choice=choice, probabilities=choice_probs
+                choice=choice, probabilities=_probabilities(qid, answer.get("probabilities"))
             )
         elif q_type == "score":
             score = answer.get("score")
             if not isinstance(score, (int, float)) or isinstance(score, bool):
                 raise ValueError(f"answer for '{qid}' has no numeric score")
-            raw_probs = answer.get("probabilities")
-            score_probs: list[float] | None = None
-            if isinstance(raw_probs, dict) and raw_probs:
-                try:
-                    score_probs = [
-                        float(raw_probs[key]) for key in sorted(raw_probs, key=lambda k: int(k))
-                    ]
-                except (KeyError, ValueError) as err:
-                    raise ValueError(
-                        f"answer for '{qid}' has non-index-keyed score probabilities"
-                    ) from err
             result[qid] = _evaluation_module.ScoreAnswer(  # pyright: ignore[reportOptionalMemberAccess]
-                score=float(score), probabilities=score_probs
+                score=float(score),
+                probabilities=_score_probabilities(
+                    qid, answer.get("probabilities"), len(question.get("criteria", ()))
+                ),
             )
         else:
             raise ValueError(f"unsupported question type {q_type!r} for '{qid}'")

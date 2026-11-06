@@ -7,10 +7,19 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 #   VENV=/path/to/venv just check
 venv := env_var_or_default("VENV", ".venv")
 
+# Interpreter `just setup` builds the venv with. Override with PYTHON=/path/to/python.
+python := env_var_or_default("PYTHON", "python3.14")
+
 # `just` alone lists the recipes
 [private]
 default:
     @just --list
+
+# Create the venv and install the dev dependencies (needs Python 3.14)
+setup:
+    {{python}} -m venv {{venv}}
+    {{venv}}/bin/pip install --upgrade pip
+    {{venv}}/bin/pip install -e ".[dev]"
 
 # Every gate CI runs: lint, format check, tests. Run this before every commit.
 check: lint format-check test

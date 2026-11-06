@@ -83,7 +83,7 @@ This project is designed to run inside a **VS Code Dev Container** using the off
 
 This project uses [Ruff](https://docs.astral.sh/ruff/) for linting and formatting, configured via `ruff.toml`.
 
-The [justfile](justfile) wraps every CI gate in one command — run `just --list` to see the recipes, and `just check` (lint + format check + tests) before every commit. It expects a venv at `.venv/`; point it elsewhere with `VENV=/path/to/venv just check`.
+The [justfile](justfile) wraps every CI gate in one command — run `just --list` to see the recipes, and `just check` (lint + format check + tests) before every commit. `just setup` creates the venv at `.venv/` (it needs Python 3.14); point it elsewhere with `VENV=/path/to/venv just check`.
 
 We follow [Home Assistant's development guidelines](https://developers.home-assistant.io/docs/development_guidelines) where applicable:
 

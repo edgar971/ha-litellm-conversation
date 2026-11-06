@@ -5,8 +5,14 @@ agent, AI Tasks (vision + decision models), STT/TTS, extended LLM tools.
 
 ## Environment
 
-- Python venv at `.venv` (Python 3.13): `source .venv/bin/activate`
+- Python venv at `.venv` (Python 3.14): `just setup`, then
+  `source .venv/bin/activate`
 - The system python3 cannot parse this code (needs 3.12+ for PEP-695 types).
+- `ruff.toml` stays on `py313`: `hacs.json` still allows older HA releases, so
+  shipped code must remain valid on 3.13 even though the tests run on 3.14.
+- The test harness pins HA 2026.10.4, which has no `ai_task.evaluation`, so
+  decision tests use a stand-in that mirrors core until the harness reaches
+  2026.11; they switch to the real module automatically once it is importable.
 - Run everything from the repo root.
 
 ```bash

@@ -16,7 +16,7 @@ from datetime import timedelta
 import ipaddress
 import socket
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import voluptuous as vol
 
@@ -41,6 +41,8 @@ EXTENDED_API_ID = f"{DOMAIN}_extended"
 EXTENDED_API_NAME = "LiteLLM Extended Tools"
 
 FETCH_URL_MAX_BYTES = 100_000
+FETCH_URL_MAX_REDIRECTS = 3
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 HISTORY_MAX_HOURS = 168  # 7 days
 ANALYZE_CAMERA_MAX_TOKENS = 500
 CALENDAR_MAX_DAYS = 30
@@ -162,18 +164,35 @@ class GetHistoryTool(llm.Tool):
         }
 
 
-def _resolve_is_private(host: str) -> bool:
-    """Return True if host resolves only to private/loopback/link-local addresses.
+def _is_blocked_ip(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Return True for addresses the fetch guard must never contact."""
+    # Unwrap IPv4-mapped IPv6 (::ffff:127.0.0.1) so the v4 rules apply.
+    mapped = getattr(address, "ipv4_mapped", None) or address
+    return bool(
+        mapped.is_private
+        or mapped.is_loopback
+        or mapped.is_link_local
+        or mapped.is_multicast
+        or mapped.is_unspecified
+    )
 
-    Runs blocking DNS resolution — call via executor.
+
+def _resolve_is_private(host: str) -> bool:
+    """Return True if host resolves to any private/loopback/link-local address.
+
+    Runs blocking DNS resolution — call via executor. Literal IPs are
+    classified through the same path (getaddrinfo accepts them). An
+    unresolvable host is NOT treated as private — the HTTP client produces
+    the real error. A host is blocked when *any* resolved address is local,
+    not only when all are: DNS round-robin pools may mix public and private
+    records, and the HTTP client would pick whichever it likes.
     """
     try:
         infos = socket.getaddrinfo(host, None)
     except OSError:
         # Unresolvable — let the HTTP client produce the real error.
         return False
-    addresses = [ipaddress.ip_address(info[4][0]) for info in infos]
-    return all(addr.is_private or addr.is_loopback or addr.is_link_local for addr in addresses)
+    return any(_is_blocked_ip(ipaddress.ip_address(info[4][0])) for info in infos)
 
 
 class FetchUrlTool(llm.Tool):
@@ -192,23 +211,42 @@ class FetchUrlTool(llm.Tool):
     async def async_call(
         self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
     ) -> Any:
-        """Fetch the URL."""
+        """Fetch the URL, re-validating every hop of a redirect chain."""
         url = tool_input.tool_args["url"]
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            return {"error": "Only http/https URLs are allowed"}
-
-        # SSRF guard: refuse URLs resolving to private/loopback ranges so the
-        # model can't probe the LAN, the HA supervisor API, or router admin
-        # pages through this tool.
-        if await hass.async_add_executor_job(_resolve_is_private, parsed.hostname):
-            return {"error": "URLs resolving to private or local addresses are not allowed"}
-
         client = get_async_client(hass)
-        try:
-            response = await client.get(url, timeout=15, follow_redirects=True)
-        except Exception as err:
-            return {"error": f"Fetch failed: {err}"}
+
+        # Redirects are followed MANUALLY with the full SSRF guard re-run per
+        # hop: with httpx follow_redirects=True the guard only ever sees the
+        # initial hostname, so a public URL answering 302 -> 127.0.0.1 would
+        # reach the LAN/Supervisor (execution-proven SSRF bypass). Re-running
+        # resolution per hop also shrinks the DNS-rebinding window between
+        # our check and the request to a single hop. The response body is
+        # only ever read from a target that just passed validation.
+        hops_left = FETCH_URL_MAX_REDIRECTS
+        while True:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                return {"error": "Only http/https URLs are allowed"}
+
+            if await hass.async_add_executor_job(_resolve_is_private, parsed.hostname):
+                return {"error": "URLs resolving to private or local addresses are not allowed"}
+
+            try:
+                response = await client.get(url, timeout=15, follow_redirects=False)
+            except Exception as err:
+                return {"error": f"Fetch failed: {err}"}
+
+            location = (
+                response.headers.get("location")
+                if response.status_code in _REDIRECT_STATUSES
+                else None
+            )
+            if location is None:
+                break
+            if hops_left == 0:
+                return {"error": "Too many redirects"}
+            hops_left -= 1
+            url = urljoin(url, str(location))
 
         body = response.text[:FETCH_URL_MAX_BYTES]
         return {

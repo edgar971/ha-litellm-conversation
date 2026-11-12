@@ -325,6 +325,165 @@ async def test_fetch_url_error(hass: HomeAssistant, public_host: None) -> None:
     assert "connection refused" in result["error"]
 
 
+# --- fetch_url redirect chain (SSRF regression, C1) ---
+#
+# These deliberately do NOT use the `public_host` fixture (which stubs the
+# whole guard off): they exercise the REAL guard classification, stubbing
+# only DNS itself for public-looking names (no real DNS in tests).
+
+
+def _redirect_response(location: str, status: int = 302) -> SimpleNamespace:
+    return SimpleNamespace(status_code=status, headers={"location": location}, text="")
+
+
+def _final_response(body: str = '{"ok": true}') -> SimpleNamespace:
+    return SimpleNamespace(status_code=200, headers={"content-type": "application/json"}, text=body)
+
+
+def _public_dns(public_names: set[str], resolutions: list[str]):
+    """getaddrinfo stand-in: public IPs for `public_names`, real answers for IP literals."""
+    import socket as socket_module
+
+    real_getaddrinfo = socket_module.getaddrinfo
+
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        if host in public_names:
+            resolutions.append(host)
+            return [(2, 1, 6, "", ("93.184.216.34", 0))]
+        return real_getaddrinfo(host, port, *args, **kwargs)
+
+    return fake_getaddrinfo
+
+
+async def test_fetch_url_blocks_redirect_to_loopback(hass: HomeAssistant) -> None:
+    """A public URL that 302s to loopback is blocked by the real guard (C1)."""
+    resolutions: list[str] = []
+    client = MagicMock()
+    client.get = AsyncMock(return_value=_redirect_response("http://127.0.0.1:8123/admin"))
+    with (
+        patch(
+            "custom_components.litellm_conversation.extended_tools.socket.getaddrinfo",
+            side_effect=_public_dns({"redirect.example.com"}, resolutions),
+        ),
+        patch(
+            "custom_components.litellm_conversation.extended_tools.get_async_client",
+            return_value=client,
+        ),
+    ):
+        tool = FetchUrlTool()
+        result = await tool.async_call(
+            hass,
+            _tool_input("fetch_url", {"url": "http://redirect.example.com/go"}),
+            _llm_context(),
+        )
+    assert result == {"error": "URLs resolving to private or local addresses are not allowed"}
+    # The loopback hop was validated and refused before it was ever requested.
+    assert client.get.await_count == 1
+    assert client.get.await_args.kwargs["follow_redirects"] is False
+
+
+async def test_fetch_url_blocks_redirect_to_non_http(hass: HomeAssistant) -> None:
+    """A redirect off the http/https schemes is rejected on the hop, not followed."""
+    resolutions: list[str] = []
+    client = MagicMock()
+    client.get = AsyncMock(return_value=_redirect_response("file:///etc/passwd"))
+    with (
+        patch(
+            "custom_components.litellm_conversation.extended_tools.socket.getaddrinfo",
+            side_effect=_public_dns({"jump.example.com"}, resolutions),
+        ),
+        patch(
+            "custom_components.litellm_conversation.extended_tools.get_async_client",
+            return_value=client,
+        ),
+    ):
+        tool = FetchUrlTool()
+        result = await tool.async_call(
+            hass,
+            _tool_input("fetch_url", {"url": "http://jump.example.com/go"}),
+            _llm_context(),
+        )
+    assert result == {"error": "Only http/https URLs are allowed"}
+    assert client.get.await_count == 1
+
+
+async def test_fetch_url_follows_legitimate_public_redirects(hass: HomeAssistant) -> None:
+    """A legit 2-hop public chain still works, and the guard ran on every hop."""
+    resolutions: list[str] = []
+    client = MagicMock()
+    client.get = AsyncMock(
+        side_effect=[
+            _redirect_response("https://b.example.com/go", status=301),
+            _redirect_response("https://b.example.com/final", status=302),
+            _final_response(),
+        ]
+    )
+    with (
+        patch(
+            "custom_components.litellm_conversation.extended_tools.socket.getaddrinfo",
+            side_effect=_public_dns({"a.example.com", "b.example.com"}, resolutions),
+        ),
+        patch(
+            "custom_components.litellm_conversation.extended_tools.get_async_client",
+            return_value=client,
+        ),
+    ):
+        tool = FetchUrlTool()
+        result = await tool.async_call(
+            hass,
+            _tool_input("fetch_url", {"url": "http://a.example.com/start"}),
+            _llm_context(),
+        )
+    assert result["status"] == 200
+    assert result["body"] == '{"ok": true}'
+    assert client.get.await_count == 3
+    # Validator ran per hop: initial host + each redirect target before use.
+    assert len(resolutions) >= 2
+    assert resolutions[0] == "a.example.com"
+
+
+async def test_fetch_url_stops_after_too_many_redirects(hass: HomeAssistant) -> None:
+    """Redirect loops are capped instead of following forever."""
+    resolutions: list[str] = []
+    client = MagicMock()
+    client.get = AsyncMock(return_value=_redirect_response("http://a.example.com/again"))
+    with (
+        patch(
+            "custom_components.litellm_conversation.extended_tools.socket.getaddrinfo",
+            side_effect=_public_dns({"a.example.com"}, resolutions),
+        ),
+        patch(
+            "custom_components.litellm_conversation.extended_tools.get_async_client",
+            return_value=client,
+        ),
+    ):
+        tool = FetchUrlTool()
+        result = await tool.async_call(
+            hass,
+            _tool_input("fetch_url", {"url": "http://a.example.com/loop"}),
+            _llm_context(),
+        )
+    assert "Too many redirects" in result["error"]
+    assert client.get.await_count == 4  # initial + 3 followed hops
+
+
+def test_resolve_is_private_rejects_any_private_record() -> None:
+    """A DNS pool mixing public and private answers is blocked (any, not all)."""
+    mixed = [
+        (2, 1, 6, "", ("93.184.216.34", 0)),
+        (2, 1, 6, "", ("10.1.2.3", 0)),
+    ]
+    with patch("socket.getaddrinfo", return_value=mixed):
+        assert _resolve_is_private("rebind.example.com") is True
+
+
+def test_resolve_is_private_blocks_mapped_loopback_and_multicast() -> None:
+    """IPv4-mapped IPv6 and multicast answers are guarded like the rest."""
+    assert _resolve_is_private("::ffff:127.0.0.1") is True
+    assert _resolve_is_private("224.0.0.251") is True
+    assert _resolve_is_private("0.0.0.0") is True
+
+
 # --- new tools (v1.4.0): analyze_camera, get_calendar_events, add_todo_item ---
 
 from custom_components.litellm_conversation.extended_tools import (  # noqa: E402

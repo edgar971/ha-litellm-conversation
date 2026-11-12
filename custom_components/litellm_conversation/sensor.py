@@ -214,10 +214,10 @@ async def async_setup_entry(
 
     async_add_entities(
         [
-            LiteLLMUsageSensor(config_entry, "requests_today", "Requests today"),
-            LiteLLMUsageSensor(config_entry, "tokens_today", "Tokens today"),
-            LiteLLMUsageSensor(config_entry, "input_tokens_today", "Input tokens today"),
-            LiteLLMUsageSensor(config_entry, "output_tokens_today", "Output tokens today"),
+            LiteLLMUsageSensor(config_entry, "requests_today"),
+            LiteLLMUsageSensor(config_entry, "tokens_today"),
+            LiteLLMUsageSensor(config_entry, "input_tokens_today"),
+            LiteLLMUsageSensor(config_entry, "output_tokens_today"),
             LiteLLMSpendSensor(coordinator),
             LiteLLMBudgetSensor(coordinator),
         ]
@@ -228,21 +228,24 @@ class LiteLLMUsageSensor(RestoreSensor):
     """Counter sensor for LiteLLM usage, resetting daily at midnight.
 
     State is restored across HA restarts (RestoreSensor) so a midday
-    restart doesn't zero the daily counters — which would also corrupt
-    long-term statistics for a TOTAL_INCREASING sensor.
+    restart doesn't zero the counters. state_class is MEASUREMENT, not
+    TOTAL_INCREASING: the counter drops back to 0 at the midnight reset,
+    and total_increasing would make long-term statistics treat every
+    daily reset as a corrupted meter drop (same reasoning as
+    LiteLLMSpendSensor above).
     """
 
     _attr_has_entity_name = True
     _attr_should_poll = False
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_native_value = 0
 
-    def __init__(self, entry: LiteLLMConfigEntry, key: str, name: str) -> None:
+    def __init__(self, entry: LiteLLMConfigEntry, key: str) -> None:
         """Initialize the sensor."""
         self.entry = entry
         self._key = key
-        self._attr_name = name
+        self._attr_translation_key = key
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_device_info = {
             "identifiers": {(DOMAIN, entry.entry_id)},

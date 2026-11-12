@@ -34,11 +34,25 @@ def no_midnight_timer():
 def _sensor(hass: HomeAssistant) -> LiteLLMUsageSensor:
     entry = MagicMock()
     entry.entry_id = "test_entry"
-    sensor = LiteLLMUsageSensor(entry, "requests_today", "Requests today")
+    sensor = LiteLLMUsageSensor(entry, "requests_today")
     sensor.hass = hass
     sensor.entity_id = "sensor.litellm_requests_today"
     sensor.async_on_remove = MagicMock()
     return sensor
+
+
+def test_usage_sensors_measurement_and_translation_key() -> None:
+    """Daily counters are MEASUREMENT (midnight reset) and translated by key (C5)."""
+    from homeassistant.components.sensor import SensorStateClass
+
+    entry = MagicMock()
+    entry.entry_id = "test_entry"
+    sensor = LiteLLMUsageSensor(entry, "tokens_today")
+
+    assert sensor.state_class == SensorStateClass.MEASUREMENT
+    assert sensor._attr_translation_key == "tokens_today"
+    assert not hasattr(sensor, "_attr_name") or sensor._attr_name is None
+    assert sensor.unique_id == "test_entry_tokens_today"
 
 
 async def _added_with_restore(

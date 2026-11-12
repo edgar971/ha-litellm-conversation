@@ -29,6 +29,7 @@ from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ANALYZE_CAMERA_TIMEOUT,
     CONF_CHAT_MODEL,
     DEFAULT_CHAT_MODEL,
     DOMAIN,
@@ -388,7 +389,9 @@ class AnalyzeCameraTool(llm.Tool):
         model = self._vision_model()
         LOGGER.debug("analyze_camera: %s question=%r model=%s", entity_id, question, model)
         try:
-            response = await self._entry.runtime_data.chat.completions.create(
+            response = await self._entry.runtime_data.with_options(
+                timeout=ANALYZE_CAMERA_TIMEOUT
+            ).chat.completions.create(
                 model=model,
                 max_tokens=ANALYZE_CAMERA_MAX_TOKENS,
                 messages=[

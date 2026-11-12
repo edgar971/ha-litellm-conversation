@@ -276,9 +276,11 @@ class LiteLLMAITaskEntity(
 
         body = build_image_request(subentry_data, task.instructions)
         try:
-            payload = await self.client.with_options(timeout=IMAGE_GENERATION_TIMEOUT).post(
-                "/images/generations", body=body, cast_to=dict
-            )
+            # max_retries=0: a retried generation doubles provider billing for
+            # the same prompt (same rationale as the decision path below).
+            payload = await self.client.with_options(
+                timeout=IMAGE_GENERATION_TIMEOUT, max_retries=0
+            ).post("/images/generations", body=body, cast_to=dict)
         except openai.APIConnectionError as err:
             self._set_available(False)
             _raise_for_api_error(err, model)

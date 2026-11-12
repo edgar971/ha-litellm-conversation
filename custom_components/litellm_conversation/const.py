@@ -61,6 +61,24 @@ IMAGE_GENERATION_TIMEOUT = 120.0
 # automation quickly rather than sit on it for minutes.
 DECISION_EVALUATION_TIMEOUT = 60.0
 
+# Per-request timeout for the Chat Completions path (conversation and AI
+# Task tool loop). Streaming generations are legitimately long-lived, so
+# this is deliberately generous — the point is that it is explicit rather
+# than the SDK default, and that a slow model surfaces as APITimeoutError
+# without marking the proxy unreachable.
+CHAT_COMPLETION_TIMEOUT = 300.0
+
+# Per-request timeout for analyze_camera's nested vision call: a one-shot
+# (non-streamed) image request, so it sits between the chat path and the
+# quick setup validation.
+ANALYZE_CAMERA_TIMEOUT = 120.0
+
+# Per-request timeouts for the audio endpoints (Whisper transcription of a
+# pushed utterance / speech synthesis of a sentence): comfortably above real
+# p99 latency, far below "hangs the Assist pipeline forever".
+STT_TIMEOUT = 60.0
+TTS_TIMEOUT = 60.0
+
 # Tags stamped on every Chat Completions request via the LiteLLM body field
 # `metadata.tags` so the proxy's spend logs (request_tags) can be sliced by
 # Home Assistant traffic in Grafana.

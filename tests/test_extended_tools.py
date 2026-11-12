@@ -10,7 +10,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import voluptuous as vol
 
-from custom_components.litellm_conversation.const import DOMAIN
+from custom_components.litellm_conversation.const import (
+    ANALYZE_CAMERA_TIMEOUT,
+    DOMAIN,
+)
 from custom_components.litellm_conversation.entity import _format_tool
 from custom_components.litellm_conversation.extended_tools import (
     EXTENDED_API_ID,
@@ -764,6 +767,7 @@ async def test_analyze_camera_happy_path(hass: HomeAssistant) -> None:
         )
 
     assert result == {"camera": "camera.driveway", "answer": "A red car."}
+    entry.runtime_data.with_options.assert_called_once_with(timeout=ANALYZE_CAMERA_TIMEOUT)
     call_kwargs = entry.runtime_data.chat.completions.create.call_args.kwargs
     assert call_kwargs["model"] == "test-model"
     assert call_kwargs["extra_body"]["metadata"] == {

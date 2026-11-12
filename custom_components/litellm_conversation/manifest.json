@@ -1,16 +1,16 @@
 {
   "domain": "litellm_conversation",
   "name": "LiteLLM Conversation",
-  "after_dependencies": ["calendar", "camera", "logbook", "recorder"],
+  "after_dependencies": ["calendar", "camera", "recorder", "todo"],
   "categories": ["ai_voice.ai_models", "ai_voice.speech"],
   "codeowners": ["@edgar971"],
   "config_flow": true,
-  "dependencies": ["conversation", "ai_task", "stt", "todo", "tts"],
+  "dependencies": ["conversation", "ai_task", "stt", "tts"],
   "documentation": "https://github.com/edgar971/ha-litellm-conversation",
   "integration_type": "service",
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/edgar971/ha-litellm-conversation/issues",
   "loggers": ["openai"],
-  "requirements": ["openai>=1.58.1", "voluptuous-openapi>=0.0.5"],
-  "version": "2.1.1"
+  "requirements": ["openai>=1.58.1,<4", "voluptuous-openapi>=0.0.5"],
+  "version": "2.2.0"
 }

@@ -144,6 +144,28 @@ async def test_user_flow_empty_model_list_shows_placeholder_not_fake_default(
     assert "model_list" in result["description_placeholders"]["model_count"]
 
 
+async def test_reconfigure_flow_prefills_current_url(hass: HomeAssistant, setup_ha) -> None:
+    """Reconfigure resolves its entry via _get_reconfigure_entry and prefills (C7)."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"api_key": API_KEY, "base_url": "http://old-proxy:4000"},
+        unique_id="http://old-proxy:4000",
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    schema_keys = {str(k) for k in result["data_schema"].schema}
+    assert "base_url" in schema_keys and "api_key" in schema_keys
+    # voluptuous 0.16 may wrap marker defaults in a factory — resolve it.
+    base_url_default = next(k.default for k in result["data_schema"].schema if str(k) == "base_url")
+    if callable(base_url_default):
+        base_url_default = base_url_default()
+    assert base_url_default == "http://old-proxy:4000"
+
+
 async def test_reauth_flow_updates_api_key(hass: HomeAssistant, setup_ha, mock_openai_ok) -> None:
     """Reauth flow validates and stores the new API key."""
     entry = MockConfigEntry(

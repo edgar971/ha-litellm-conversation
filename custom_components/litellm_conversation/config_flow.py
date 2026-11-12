@@ -230,7 +230,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle reconfiguration of base_url and api_key."""
         errors: dict[str, str] = {}
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        entry = self._get_reconfigure_entry()
 
         if user_input is not None:
             base_url = user_input[CONF_BASE_URL].rstrip("/")
@@ -242,11 +242,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                 existing = self.hass.config_entries.async_entry_for_domain_unique_id(
                     self.handler, base_url
                 )
-                if (
-                    existing is not None
-                    and entry is not None
-                    and existing.entry_id != entry.entry_id
-                ):
+                if existing is not None and existing.entry_id != entry.entry_id:
                     return self.async_abort(reason="already_configured")
                 return self.async_update_reload_and_abort(
                     entry,
@@ -254,7 +250,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                     data={CONF_BASE_URL: base_url, CONF_API_KEY: api_key},
                 )
 
-        current_base_url = entry.data.get(CONF_BASE_URL, "") if entry else ""
+        current_base_url = entry.data.get(CONF_BASE_URL, "")
 
         return self.async_show_form(
             step_id="reconfigure",

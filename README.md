@@ -88,7 +88,7 @@ These tools intentionally give the model more reach than the Assist API. Built-i
 
 ### Prerequisites
 
-- Home Assistant **2025.7.0** or later (uses config subentries and the modern ChatLog LLM APIs)
+- Home Assistant **2025.9.0** or later (uses config subentries, the modern ChatLog LLM APIs, and AI Task features added in 2025.8/2025.9)
 - A running [LiteLLM proxy](https://docs.litellm.ai/docs/proxy/quick_start) with at least one model configured
 
 ### Via Marketplace / HACS (Recommended)

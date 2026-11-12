@@ -168,11 +168,14 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
         # config gap (no model_list entries) rather than a network/auth
         # problem, so it wasn't caught by _validate_connection. Surface it
         # instead of silently seeding a fake "gpt-4o-mini" that doesn't
-        # exist on the proxy and will fail on first use.
-        model_count_text = (
-            str(len(models))
+        # exist on the proxy and will fail on first use. The count stays a
+        # bare number and the warning gets its own placeholder — stuffing a
+        # whole sentence into {model_count} used to render as garbled text.
+        models_warning = (
+            ""
             if models
-            else "0 — check your LiteLLM proxy's model_list config; a placeholder is shown below but it will not work until you add a real model"
+            else "No models found. Check your LiteLLM proxy's model_list configuration; "
+            "the placeholder option below will not work until you add a real model. "
         )
         return self.async_show_form(
             step_id="models",
@@ -193,7 +196,10 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                     ),
                 }
             ),
-            description_placeholders={"model_count": model_count_text},
+            description_placeholders={
+                "model_count": str(len(models)),
+                "models_warning": models_warning,
+            },
         )
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:

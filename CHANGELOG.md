@@ -6,6 +6,27 @@ introduced; from here on they are rendered with [`just changelog`](justfile)
 via [git-cliff](https://git-cliff.org) and Conventional Commits
 (`feat`/`fix`/`perf`/`refactor`; `docs`, `test`, `ci`, `chore` do not appear).
 
+## [2.2.0] - 2026-11-11
+
+### Security
+
+- **`fetch_url` no longer follows redirects unchecked.** `follow_redirects=True` validated only the initial hostname, so a public URL answering `302 → 127.0.0.1` fetched loopback/LAN targets. Redirects (max 3) are now followed manually, re-running the SSRF guard on every hop. The guard also blocks hosts with any private/loopback/link-local/multicast/unspecified answer (mixed DNS pools), IPv4-mapped IPv6 literals, and non-HTTP schemes on redirect targets.
+- **`call_service` requires an explicit `entity_id` target that is exposed to Assist** (area/device targeting is refused), and additionally blocks the `lock`, `alarm_control_panel`, `automation`, `script`, and `notify` domains even when exposed.
+
+### Fixed
+
+- The extended-tools LLM API is now unregistered when the last config entry unloads instead of persisting across reloads.
+- Every request path pins an explicit timeout: chat completions 300 s, `analyze_camera` 120 s, STT/TTS 60 s; image-generation POSTs disable SDK retries (`max_retries=0`) so a retried generation can't double-bill.
+- Slow generations (timeouts) no longer flip entity availability; only genuine connection failures mark the proxy unreachable.
+- Daily usage counters report as `measurement` instead of `total_increasing` (they reset at midnight, which corrupted long-term statistics) and use translated names.
+- The models step keeps `{model_count}` numeric with a separate `{models_warning}` placeholder — the zero-models notice used to render as garbled concatenated text.
+- User messages carrying only attachments (an image with no caption) are no longer dropped from the request.
+- Manifest: `todo` moved to `after_dependencies`, unused `logbook` dependency removed, `openai` capped at `<4`.
+
+### Changed
+
+- Minimum Home Assistant raised to **2025.9.0**: the AI Task entity declares `SUPPORT_ATTACHMENTS` (core 2025.8) and `GENERATE_IMAGE` (core 2025.9) unconditionally, which crashed platform setup on 2025.7. Raising the floor was preferred over gating class-level support flags per version.
+
 ## [Unreleased]
 
 ## [2.1.1] - 2026-11-06

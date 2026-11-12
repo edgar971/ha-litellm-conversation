@@ -84,6 +84,21 @@ These tools intentionally give the model more reach than the Assist API. Built-i
 
 ---
 
+## Privacy
+
+All data this integration handles — prompts, conversation history, image
+attachments, audio for STT, TTS text, generated images — flows **only** to
+the LiteLLM proxy URL you configure. The integration phones home nowhere:
+no telemetry, no license checks, no third-party endpoints.
+
+Be aware that the Extended Tools deliberately widen what leaves your
+network: `fetch_url` makes outbound HTTP requests to addresses a model
+chooses, `analyze_camera` routes camera snapshots through your proxy, and
+`call_service` executes real device actions. Enable them only for agents
+you trust, and keep sensitive entities unexposed.
+
+---
+
 ## Installation
 
 ### Prerequisites
@@ -128,7 +143,7 @@ These tools intentionally give the model more reach than the Assist API. Built-i
 | Field | Example | Notes |
 |-------|---------|-------|
 | **LiteLLM Base URL** | `http://192.168.1.100:4000` | Your LiteLLM proxy URL (without `/v1`) |
-| **API Key** | `sk-my-key` | Your LiteLLM proxy master key |
+| **API Key** | `sk-my-key` | A dedicated LiteLLM **virtual key** minted for Home Assistant (proxy admin UI → Keys). The spend/budget sensors then report exactly Home Assistant's own spend. A master key also works, but the sensors reflect the *master key's* spend — every request on the proxy, not just Home Assistant's. |
 
 The integration will automatically fetch the model list from your proxy.
 
@@ -223,6 +238,17 @@ See the full list at [docs.litellm.ai/providers](https://docs.litellm.ai/docs/pr
 
 ---
 
+## Known limitations
+
+- **Attachments are images only.** PDF attachments are rejected with a clear error — the Chat Completions path (Bedrock in particular) does not reliably accept them.
+- **Image generation is `b64_json` only.** URL-only image responses are refused on purpose rather than fetched (SSRF posture).
+- **Chat Completions only.** The Responses API is not used, so provider features exclusive to it (e.g. hosted tools/past-resources) are unavailable.
+- **Decision models** need LiteLLM proxy >= 1.104.2 and are hidden on Home Assistant older than 2026.11 (the `ai_task.evaluate` contract does not exist there yet).
+- **With multiple config entries**, the Extended Tools API binds to the *first* entry's proxy (the `analyze_camera` nested call uses that entry's client/model).
+- **LiteLLM-proxy-specific features**: the proxy spend/budget sensors, request tagging, guardrails, and decision models rely on LiteLLM extensions. Basic chat, AI tasks, STT and TTS work against any OpenAI-compatible endpoint.
+
+---
+
 ## Troubleshooting
 
 ### Integration can't connect to LiteLLM proxy
@@ -233,7 +259,7 @@ See the full list at [docs.litellm.ai/providers](https://docs.litellm.ai/docs/pr
 
 ### "invalid_auth" error
 
-- Double-check your LiteLLM master key in the proxy config
+- Double-check your LiteLLM key (virtual key or master key) in the proxy config
 - Try `curl http://<proxy-url>/v1/models -H "Authorization: Bearer <key>"`
 
 ### No models listed in dropdown

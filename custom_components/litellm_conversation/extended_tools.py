@@ -20,7 +20,7 @@ from urllib.parse import urljoin, urlparse
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
@@ -39,6 +39,9 @@ from .const import (
 
 EXTENDED_API_ID = f"{DOMAIN}_extended"
 EXTENDED_API_NAME = "LiteLLM Extended Tools"
+# hass.data[DOMAIN] key holding the unregister handle returned by
+# llm.async_register_api (see async_register_extended_api).
+EXTENDED_API_UNREGISTER_KEY = "extended_api_unregister"
 
 FETCH_URL_MAX_BYTES = 100_000
 FETCH_URL_MAX_REDIRECTS = 3
@@ -586,8 +589,35 @@ class ExtendedToolsAPI(llm.API):
 
 
 def async_register_extended_api(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Register the extended tools API once per HA instance."""
+    """Register the extended tools API once per HA instance.
+
+    The unregister callable returned by llm.async_register_api is stored in
+    hass.data so async_unload_entry can drop the API when the last config
+    entry goes away; discarding it would leave a stale API registered past
+    unload.
+    """
     if any(api.id == EXTENDED_API_ID for api in llm.async_get_apis(hass)):
         return
-    llm.async_register_api(hass, ExtendedToolsAPI(hass, entry))
+    unregister = llm.async_register_api(hass, ExtendedToolsAPI(hass, entry))
+    hass.data.setdefault(DOMAIN, {})[EXTENDED_API_UNREGISTER_KEY] = unregister
     LOGGER.info("Registered %s LLM API", EXTENDED_API_NAME)
+
+
+def async_release_extended_api(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Unregister the extended tools API when the LAST config entry unloads.
+
+    The API is registered once but was built with one entry's client, so it
+    must not outlive the config entries (multi-entry proxy pinning is a
+    documented README limitation, not fixed here).
+    """
+    remaining = [
+        other
+        for other in hass.config_entries.async_entries(DOMAIN)
+        if other.entry_id != entry.entry_id and other.state is ConfigEntryState.LOADED
+    ]
+    if remaining:
+        return
+    unregister = hass.data.get(DOMAIN, {}).pop(EXTENDED_API_UNREGISTER_KEY, None)
+    if unregister is not None:
+        unregister()
+        LOGGER.info("Unregistered %s LLM API", EXTENDED_API_NAME)

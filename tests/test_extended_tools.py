@@ -14,12 +14,14 @@ from custom_components.litellm_conversation.const import DOMAIN
 from custom_components.litellm_conversation.entity import _format_tool
 from custom_components.litellm_conversation.extended_tools import (
     EXTENDED_API_ID,
+    EXTENDED_API_UNREGISTER_KEY,
     CallServiceTool,
     ExtendedToolsAPI,
     FetchUrlTool,
     GetHistoryTool,
     _resolve_is_private,
     async_register_extended_api,
+    async_release_extended_api,
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -74,6 +76,60 @@ async def test_register_extended_api(hass: HomeAssistant) -> None:
     async_register_extended_api(hass, _mock_entry())
     apis = [api.id for api in llm.async_get_apis(hass)]
     assert apis.count(EXTENDED_API_ID) == 1
+
+
+async def test_register_extended_api_stores_unregister_handle(hass: HomeAssistant) -> None:
+    """The unregister handle from llm.async_register_api is kept in hass.data (C3)."""
+    unregister = MagicMock()
+    with patch(
+        "custom_components.litellm_conversation.extended_tools.llm.async_register_api",
+        return_value=unregister,
+    ):
+        async_register_extended_api(hass, _mock_entry())
+    assert hass.data[DOMAIN][EXTENDED_API_UNREGISTER_KEY] is unregister
+
+
+def _entry_with_state(entry_id: str, state: object) -> MagicMock:
+    entry = MagicMock()
+    entry.entry_id = entry_id
+    entry.state = state
+    return entry
+
+
+async def test_release_extended_api_unregisters_last_entry(hass: HomeAssistant) -> None:
+    """Unloading the last config entry unregisters the API for real (C3)."""
+    from homeassistant.config_entries import ConfigEntryState
+
+    async_register_extended_api(hass, _mock_entry())
+    assert EXTENDED_API_ID in [api.id for api in llm.async_get_apis(hass)]
+    # Spy on the real unregister handle so we can assert both the call and
+    # the actual de-registration.
+    unregister = MagicMock(side_effect=hass.data[DOMAIN].pop(EXTENDED_API_UNREGISTER_KEY))
+    hass.data[DOMAIN][EXTENDED_API_UNREGISTER_KEY] = unregister
+
+    entry = _entry_with_state("a", ConfigEntryState.LOADED)
+    stale = _entry_with_state("b", ConfigEntryState.NOT_LOADED)
+    with patch.object(hass.config_entries, "async_entries", return_value=[entry, stale]):
+        async_release_extended_api(hass, entry)
+
+    unregister.assert_called_once()
+    assert EXTENDED_API_UNREGISTER_KEY not in hass.data[DOMAIN]
+    assert EXTENDED_API_ID not in [api.id for api in llm.async_get_apis(hass)]
+
+
+async def test_release_extended_api_keeps_api_while_entries_remain(
+    hass: HomeAssistant,
+) -> None:
+    """While another entry is still loaded the API must stay registered (C3)."""
+    from homeassistant.config_entries import ConfigEntryState
+
+    unregister = MagicMock()
+    hass.data[DOMAIN] = {EXTENDED_API_UNREGISTER_KEY: unregister}
+    entry = _entry_with_state("a", ConfigEntryState.LOADED)
+    other = _entry_with_state("b", ConfigEntryState.LOADED)
+    with patch.object(hass.config_entries, "async_entries", return_value=[entry, other]):
+        async_release_extended_api(hass, entry)
+    unregister.assert_not_called()
 
 
 async def test_api_instance_without_assist(hass: HomeAssistant) -> None:

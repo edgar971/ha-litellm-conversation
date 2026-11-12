@@ -168,11 +168,14 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
         # config gap (no model_list entries) rather than a network/auth
         # problem, so it wasn't caught by _validate_connection. Surface it
         # instead of silently seeding a fake "gpt-4o-mini" that doesn't
-        # exist on the proxy and will fail on first use.
-        model_count_text = (
-            str(len(models))
+        # exist on the proxy and will fail on first use. The count stays a
+        # bare number and the warning gets its own placeholder — stuffing a
+        # whole sentence into {model_count} used to render as garbled text.
+        models_warning = (
+            ""
             if models
-            else "0 — check your LiteLLM proxy's model_list config; a placeholder is shown below but it will not work until you add a real model"
+            else "No models found. Check your LiteLLM proxy's model_list configuration; "
+            "the placeholder option below will not work until you add a real model. "
         )
         return self.async_show_form(
             step_id="models",
@@ -193,7 +196,10 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                     ),
                 }
             ),
-            description_placeholders={"model_count": model_count_text},
+            description_placeholders={
+                "model_count": str(len(models)),
+                "models_warning": models_warning,
+            },
         )
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
@@ -230,7 +236,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         """Handle reconfiguration of base_url and api_key."""
         errors: dict[str, str] = {}
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
+        entry = self._get_reconfigure_entry()
 
         if user_input is not None:
             base_url = user_input[CONF_BASE_URL].rstrip("/")
@@ -242,11 +248,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                 existing = self.hass.config_entries.async_entry_for_domain_unique_id(
                     self.handler, base_url
                 )
-                if (
-                    existing is not None
-                    and entry is not None
-                    and existing.entry_id != entry.entry_id
-                ):
+                if existing is not None and existing.entry_id != entry.entry_id:
                     return self.async_abort(reason="already_configured")
                 return self.async_update_reload_and_abort(
                     entry,
@@ -254,7 +256,7 @@ class LiteLLMConfigFlow(ConfigFlow, domain=DOMAIN):
                     data={CONF_BASE_URL: base_url, CONF_API_KEY: api_key},
                 )
 
-        current_base_url = entry.data.get(CONF_BASE_URL, "") if entry else ""
+        current_base_url = entry.data.get(CONF_BASE_URL, "")
 
         return self.async_show_form(
             step_id="reconfigure",

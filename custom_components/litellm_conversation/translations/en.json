@@ -37,7 +37,7 @@
       },
       "models": {
         "title": "Select Model",
-        "description": "{model_count} models found on your LiteLLM proxy. Select a default model for conversation and AI tasks.",
+        "description": "{models_warning}{model_count} models found on your LiteLLM proxy. Select a default model for conversation and AI tasks.",
         "data": {
           "chat_model": "Model"
         }
@@ -267,6 +267,18 @@
   },
   "entity": {
     "sensor": {
+      "requests_today": {
+        "name": "Requests today"
+      },
+      "tokens_today": {
+        "name": "Tokens today"
+      },
+      "input_tokens_today": {
+        "name": "Input tokens today"
+      },
+      "output_tokens_today": {
+        "name": "Output tokens today"
+      },
       "proxy_spend": {
         "name": "Proxy spend"
       },

@@ -21,7 +21,7 @@ from homeassistant.components.stt import (
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import CONF_STT_MODEL, DEFAULT_STT_MODEL, LOGGER
+from .const import CONF_STT_MODEL, DEFAULT_STT_MODEL, LOGGER, STT_TIMEOUT
 from .entity import LiteLLMBaseLLMEntity
 
 if TYPE_CHECKING:
@@ -136,7 +136,9 @@ class LiteLLMSTTEntity(SpeechToTextEntity, LiteLLMBaseLLMEntity):
         model = self.subentry.data.get(CONF_STT_MODEL, DEFAULT_STT_MODEL)
 
         try:
-            transcription = await self.client.audio.transcriptions.create(
+            transcription = await self.client.with_options(
+                timeout=STT_TIMEOUT
+            ).audio.transcriptions.create(
                 model=model,
                 file=(filename, file_data),
                 language=metadata.language.split("-")[0],

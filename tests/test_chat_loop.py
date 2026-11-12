@@ -87,6 +87,9 @@ def _make_entity(hass: HomeAssistant, responses: list) -> LiteLLMBaseLLMEntity:
     entry = MagicMock()
     entry.entry_id = "test_entry"
     entry.runtime_data = MagicMock()
+    # The code path calls client.with_options(timeout=...) — make the
+    # timeout override return the same fake so create() stays reachable.
+    entry.runtime_data.with_options.return_value = entry.runtime_data
     entry.runtime_data.chat.completions.create = AsyncMock(side_effect=responses)
     subentry = MagicMock()
     subentry.subentry_id = "sub1"
@@ -220,3 +223,33 @@ async def test_other_api_errors_do_not_mark_unavailable(hass: HomeAssistant) -> 
     with pytest.raises(HomeAssistantError):
         await entity._async_handle_chat_log(chat_log)
     assert entity.available is True
+
+
+async def test_timeout_error_keeps_entity_available(hass: HomeAssistant) -> None:
+    """A slow generation is not an unreachable proxy (C4).
+
+    APITimeoutError subclasses APIConnectionError; the chat path must catch
+    it first so the entity does not flip to unavailable and log
+    'proxy unreachable' (mirrors the decision path's contract).
+    """
+    import openai
+
+    chat_log = _FakeChatLog([{"adds": 1, "unresponded": False}])
+    entity = _make_entity(hass, [openai.APITimeoutError(request=MagicMock())])
+
+    with pytest.raises(HomeAssistantError):
+        await entity._async_handle_chat_log(chat_log)
+    assert entity.available is True
+
+
+async def test_chat_request_sets_explicit_timeout(hass: HomeAssistant) -> None:
+    """The Chat Completions call runs under an explicit generous timeout (C4)."""
+    from custom_components.litellm_conversation.const import CHAT_COMPLETION_TIMEOUT
+
+    chat_log = _FakeChatLog([{"adds": 1, "unresponded": False}])
+    entity = _make_entity(hass, [_Stream([_content_chunk(), _usage_chunk()])])
+
+    await entity._async_handle_chat_log(chat_log)
+
+    assert CHAT_COMPLETION_TIMEOUT >= 300.0  # streaming generations are legitimately long
+    entity.entry.runtime_data.with_options.assert_called_with(timeout=CHAT_COMPLETION_TIMEOUT)

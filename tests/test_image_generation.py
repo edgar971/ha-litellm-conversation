@@ -19,6 +19,7 @@ from custom_components.litellm_conversation.ai_task import (
     parse_image_response,
     parse_size,
 )
+from custom_components.litellm_conversation.const import IMAGE_GENERATION_TIMEOUT
 from homeassistant.components import ai_task
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
@@ -279,6 +280,18 @@ async def test_generate_image_connection_error_marks_unavailable(
     with pytest.raises(HomeAssistantError):
         await entity._async_generate_image(_task(), _chat_log())
     assert entity.available is False
+
+
+async def test_generate_image_disables_sdk_retries(hass: HomeAssistant) -> None:
+    """Retried generations double-bill the same prompt: post must be max_retries=0 (C4)."""
+    payload = {"data": [{"b64_json": base64.b64encode(b"X").decode()}]}
+    entity = _entity(hass, dict(_IMAGE_SUBENTRY), AsyncMock(return_value=payload))
+
+    await entity._async_generate_image(_task(), _chat_log())
+
+    entity.client.with_options.assert_called_once_with(
+        timeout=IMAGE_GENERATION_TIMEOUT, max_retries=0
+    )
 
 
 async def test_generate_image_malformed_payload_maps_error(hass: HomeAssistant) -> None:

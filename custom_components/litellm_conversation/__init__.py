@@ -13,7 +13,7 @@ from homeassistant.helpers.httpx_client import get_async_client
 
 from .const import CONF_BASE_URL, LOGGER
 from .const import DOMAIN as DOMAIN
-from .extended_tools import async_register_extended_api
+from .extended_tools import async_register_extended_api, async_release_extended_api
 from .util import normalize_base_url
 
 # This integration is config-entry only — no YAML configuration is
@@ -76,4 +76,7 @@ async def _async_update_listener(hass: HomeAssistant, entry: LiteLLMConfigEntry)
 
 async def async_unload_entry(hass: HomeAssistant, entry: LiteLLMConfigEntry) -> bool:
     """Unload a config entry."""
-    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unloaded:
+        async_release_extended_api(hass, entry)
+    return unloaded

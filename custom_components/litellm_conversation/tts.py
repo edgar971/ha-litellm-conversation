@@ -21,6 +21,7 @@ from .const import (
     DEFAULT_TTS_MODEL,
     DEFAULT_TTS_VOICE,
     LOGGER,
+    TTS_TIMEOUT,
     TTS_VOICES,
 )
 from .entity import LiteLLMBaseLLMEntity
@@ -72,7 +73,7 @@ class LiteLLMTTSEntity(TextToSpeechEntity, LiteLLMBaseLLMEntity):
         voice = options.get(ATTR_VOICE, self.subentry.data.get(CONF_TTS_VOICE, DEFAULT_TTS_VOICE))
 
         try:
-            response = await self.client.audio.speech.create(
+            response = await self.client.with_options(timeout=TTS_TIMEOUT).audio.speech.create(
                 model=model,
                 voice=voice,
                 input=message,

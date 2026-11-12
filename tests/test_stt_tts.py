@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import openai
 
+from custom_components.litellm_conversation.const import STT_TIMEOUT, TTS_TIMEOUT
 from custom_components.litellm_conversation.stt import LiteLLMSTTEntity, _wav_header
 from custom_components.litellm_conversation.tts import LiteLLMTTSEntity
 from homeassistant.components.stt import (
@@ -24,6 +25,8 @@ from homeassistant.components.tts import ATTR_VOICE
 def _entry_and_subentry(data: dict | None = None):
     entry = MagicMock()
     entry.runtime_data = MagicMock()
+    # Code paths call client.with_options(timeout=...) — return the same fake.
+    entry.runtime_data.with_options.return_value = entry.runtime_data
     subentry = MagicMock()
     subentry.subentry_id = "sub1"
     subentry.title = "Test"
@@ -75,6 +78,7 @@ async def test_stt_wav_transcription() -> None:
     assert file_data.startswith(b"RIFF")
     assert file_data.endswith(b"pcm1pcm2")
     assert kwargs["language"] == "en"  # region stripped
+    entity.entry.runtime_data.with_options.assert_called_once_with(timeout=STT_TIMEOUT)
 
 
 async def test_stt_ogg_passthrough() -> None:
@@ -147,6 +151,7 @@ async def test_tts_audio_generated() -> None:
     assert kwargs["model"] == "tts-1"
     assert kwargs["voice"] == "nova"  # subentry default used
     assert kwargs["extra_body"] == {"drop_params": True}
+    entity.entry.runtime_data.with_options.assert_called_once_with(timeout=TTS_TIMEOUT)
 
 
 async def test_tts_voice_option_overrides_subentry() -> None:

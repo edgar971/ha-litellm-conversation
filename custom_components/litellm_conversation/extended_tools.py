@@ -16,11 +16,11 @@ from datetime import timedelta
 import ipaddress
 import socket
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
@@ -29,6 +29,7 @@ from homeassistant.helpers.httpx_client import get_async_client
 from homeassistant.util import dt as dt_util
 
 from .const import (
+    ANALYZE_CAMERA_TIMEOUT,
     CONF_CHAT_MODEL,
     DEFAULT_CHAT_MODEL,
     DOMAIN,
@@ -39,8 +40,13 @@ from .const import (
 
 EXTENDED_API_ID = f"{DOMAIN}_extended"
 EXTENDED_API_NAME = "LiteLLM Extended Tools"
+# hass.data[DOMAIN] key holding the unregister handle returned by
+# llm.async_register_api (see async_register_extended_api).
+EXTENDED_API_UNREGISTER_KEY = "extended_api_unregister"
 
 FETCH_URL_MAX_BYTES = 100_000
+FETCH_URL_MAX_REDIRECTS = 3
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 HISTORY_MAX_HOURS = 168  # 7 days
 ANALYZE_CAMERA_MAX_TOKENS = 500
 CALENDAR_MAX_DAYS = 30
@@ -48,16 +54,61 @@ CALENDAR_MAX_EVENTS = 50
 
 # Domains the LLM may never call services on. call_service is a power tool,
 # but a prompt-injected model must not be able to stop/restart HA, run
-# arbitrary shell commands or Python, or wipe the recorder.
+# arbitrary shell commands or Python, or wipe the recorder. The second group
+# (physical security, automation execution, notification exfil) is blocked
+# even for entities exposed to Assist: exposure means "safe for the built-in
+# intent handlers", which validate actions far more narrowly than an
+# arbitrary service call with a model-chosen payload.
 BLOCKED_SERVICE_DOMAINS = frozenset(
     {
+        # system control / code execution
         "hassio",
         "homeassistant",
         "python_script",
         "recorder",
         "shell_command",
+        # security-critical / data-exfiltration: blocked even when exposed
+        "alarm_control_panel",
+        "automation",
+        "lock",
+        "notify",
+        "script",
     }
 )
+
+
+def _check_service_targets(hass: HomeAssistant, data: dict) -> dict[str, Any] | None:
+    """Gate call_service payloads through the Assist exposure filter.
+
+    Mirrors _guard_entity: every entity the model names must exist and be
+    exposed to Assist, so a prompt-injected model cannot act on entities the
+    user deliberately kept unexposed (locks, alarms, snooping cameras).
+    area_id/device_id targets are rejected outright — exposure is tracked
+    per entity and a broadened target set cannot be checked, so the model
+    must enumerate the entity_ids it wants.
+    """
+    from homeassistant.components.homeassistant.exposed_entities import (
+        async_should_expose,
+    )
+
+    if "area_id" in data or "device_id" in data:
+        return {
+            "error": "call_service requires an explicit entity_id target "
+            "(area_id/device_id targets cannot be checked against Assist exposure)"
+        }
+    entity_ids = data.get("entity_id")
+    if entity_ids is None:
+        return {"error": "call_service requires data.entity_id (one entity id or a list)"}
+    if isinstance(entity_ids, str):
+        entity_ids = [entity_ids]
+    if not isinstance(entity_ids, list):
+        return {"error": "data.entity_id must be an entity id or a list of entity ids"}
+    for entity_id in entity_ids:
+        if not isinstance(entity_id, str) or hass.states.get(entity_id) is None:
+            return {"error": f"Entity {entity_id} not found"}
+        if not async_should_expose(hass, "conversation", entity_id):
+            return {"error": f"Entity {entity_id} is not exposed to Assist"}
+    return None
 
 
 class CallServiceTool(llm.Tool):
@@ -68,10 +119,12 @@ class CallServiceTool(llm.Tool):
     description = (
         "Call a Home Assistant service. Use for actions not covered by other "
         "tools, e.g. 'light.turn_on' with entity_id and brightness. "
-        "domain is the service domain (light, switch, script...), service is "
+        "domain is the service domain (light, switch, ...), service is "
         "the service name (turn_on, toggle...), data is the service payload "
-        "including entity_id/area_id targets. System domains (homeassistant, "
-        "hassio, shell_command, python_script, recorder) are not allowed."
+        "and must include entity_id (one id or a list) of entities exposed "
+        "to Assist. System domains (homeassistant, hassio, shell_command, "
+        "python_script, recorder) and security-sensitive domains (lock, "
+        "alarm_control_panel, automation, script, notify) are not allowed."
     )
     parameters = vol.Schema(
         {
@@ -94,6 +147,9 @@ class CallServiceTool(llm.Tool):
 
         if not hass.services.has_service(domain, service):
             return {"error": f"Service {domain}.{service} does not exist"}
+
+        if error := _check_service_targets(hass, data):
+            return error
 
         LOGGER.debug("Extended tool call_service: %s.%s data=%s", domain, service, data)
         supports_response = (
@@ -162,18 +218,35 @@ class GetHistoryTool(llm.Tool):
         }
 
 
-def _resolve_is_private(host: str) -> bool:
-    """Return True if host resolves only to private/loopback/link-local addresses.
+def _is_blocked_ip(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Return True for addresses the fetch guard must never contact."""
+    # Unwrap IPv4-mapped IPv6 (::ffff:127.0.0.1) so the v4 rules apply.
+    mapped = getattr(address, "ipv4_mapped", None) or address
+    return bool(
+        mapped.is_private
+        or mapped.is_loopback
+        or mapped.is_link_local
+        or mapped.is_multicast
+        or mapped.is_unspecified
+    )
 
-    Runs blocking DNS resolution — call via executor.
+
+def _resolve_is_private(host: str) -> bool:
+    """Return True if host resolves to any private/loopback/link-local address.
+
+    Runs blocking DNS resolution — call via executor. Literal IPs are
+    classified through the same path (getaddrinfo accepts them). An
+    unresolvable host is NOT treated as private — the HTTP client produces
+    the real error. A host is blocked when *any* resolved address is local,
+    not only when all are: DNS round-robin pools may mix public and private
+    records, and the HTTP client would pick whichever it likes.
     """
     try:
         infos = socket.getaddrinfo(host, None)
     except OSError:
         # Unresolvable — let the HTTP client produce the real error.
         return False
-    addresses = [ipaddress.ip_address(info[4][0]) for info in infos]
-    return all(addr.is_private or addr.is_loopback or addr.is_link_local for addr in addresses)
+    return any(_is_blocked_ip(ipaddress.ip_address(info[4][0])) for info in infos)
 
 
 class FetchUrlTool(llm.Tool):
@@ -192,23 +265,42 @@ class FetchUrlTool(llm.Tool):
     async def async_call(
         self, hass: HomeAssistant, tool_input: llm.ToolInput, llm_context: llm.LLMContext
     ) -> Any:
-        """Fetch the URL."""
+        """Fetch the URL, re-validating every hop of a redirect chain."""
         url = tool_input.tool_args["url"]
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            return {"error": "Only http/https URLs are allowed"}
-
-        # SSRF guard: refuse URLs resolving to private/loopback ranges so the
-        # model can't probe the LAN, the HA supervisor API, or router admin
-        # pages through this tool.
-        if await hass.async_add_executor_job(_resolve_is_private, parsed.hostname):
-            return {"error": "URLs resolving to private or local addresses are not allowed"}
-
         client = get_async_client(hass)
-        try:
-            response = await client.get(url, timeout=15, follow_redirects=True)
-        except Exception as err:
-            return {"error": f"Fetch failed: {err}"}
+
+        # Redirects are followed MANUALLY with the full SSRF guard re-run per
+        # hop: with httpx follow_redirects=True the guard only ever sees the
+        # initial hostname, so a public URL answering 302 -> 127.0.0.1 would
+        # reach the LAN/Supervisor (execution-proven SSRF bypass). Re-running
+        # resolution per hop also shrinks the DNS-rebinding window between
+        # our check and the request to a single hop. The response body is
+        # only ever read from a target that just passed validation.
+        hops_left = FETCH_URL_MAX_REDIRECTS
+        while True:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                return {"error": "Only http/https URLs are allowed"}
+
+            if await hass.async_add_executor_job(_resolve_is_private, parsed.hostname):
+                return {"error": "URLs resolving to private or local addresses are not allowed"}
+
+            try:
+                response = await client.get(url, timeout=15, follow_redirects=False)
+            except Exception as err:
+                return {"error": f"Fetch failed: {err}"}
+
+            location = (
+                response.headers.get("location")
+                if response.status_code in _REDIRECT_STATUSES
+                else None
+            )
+            if location is None:
+                break
+            if hops_left == 0:
+                return {"error": "Too many redirects"}
+            hops_left -= 1
+            url = urljoin(url, str(location))
 
         body = response.text[:FETCH_URL_MAX_BYTES]
         return {
@@ -297,7 +389,9 @@ class AnalyzeCameraTool(llm.Tool):
         model = self._vision_model()
         LOGGER.debug("analyze_camera: %s question=%r model=%s", entity_id, question, model)
         try:
-            response = await self._entry.runtime_data.chat.completions.create(
+            response = await self._entry.runtime_data.with_options(
+                timeout=ANALYZE_CAMERA_TIMEOUT
+            ).chat.completions.create(
                 model=model,
                 max_tokens=ANALYZE_CAMERA_MAX_TOKENS,
                 messages=[
@@ -498,8 +592,35 @@ class ExtendedToolsAPI(llm.API):
 
 
 def async_register_extended_api(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Register the extended tools API once per HA instance."""
+    """Register the extended tools API once per HA instance.
+
+    The unregister callable returned by llm.async_register_api is stored in
+    hass.data so async_unload_entry can drop the API when the last config
+    entry goes away; discarding it would leave a stale API registered past
+    unload.
+    """
     if any(api.id == EXTENDED_API_ID for api in llm.async_get_apis(hass)):
         return
-    llm.async_register_api(hass, ExtendedToolsAPI(hass, entry))
+    unregister = llm.async_register_api(hass, ExtendedToolsAPI(hass, entry))
+    hass.data.setdefault(DOMAIN, {})[EXTENDED_API_UNREGISTER_KEY] = unregister
     LOGGER.info("Registered %s LLM API", EXTENDED_API_NAME)
+
+
+def async_release_extended_api(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Unregister the extended tools API when the LAST config entry unloads.
+
+    The API is registered once but was built with one entry's client, so it
+    must not outlive the config entries (multi-entry proxy pinning is a
+    documented README limitation, not fixed here).
+    """
+    remaining = [
+        other
+        for other in hass.config_entries.async_entries(DOMAIN)
+        if other.entry_id != entry.entry_id and other.state is ConfigEntryState.LOADED
+    ]
+    if remaining:
+        return
+    unregister = hass.data.get(DOMAIN, {}).pop(EXTENDED_API_UNREGISTER_KEY, None)
+    if unregister is not None:
+        unregister()
+        LOGGER.info("Unregistered %s LLM API", EXTENDED_API_NAME)

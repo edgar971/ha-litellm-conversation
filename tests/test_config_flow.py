@@ -140,8 +140,53 @@ async def test_user_flow_empty_model_list_shows_placeholder_not_fake_default(
 
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "models"
-    assert result["description_placeholders"]["model_count"].startswith("0")
-    assert "model_list" in result["description_placeholders"]["model_count"]
+    # The count placeholder stays a bare number; the warning is its own
+    # placeholder (mixing them rendered a garbled sentence, C8).
+    assert result["description_placeholders"]["model_count"] == "0"
+    assert "model_list" in result["description_placeholders"]["models_warning"]
+
+
+async def test_models_step_count_placeholder_is_numeric_when_models_exist(
+    hass: HomeAssistant, setup_ha, mock_openai_ok
+) -> None:
+    """With models listed the warning placeholder is empty and the count is a number (C8)."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], USER_INPUT)
+    assert result["step_id"] == "models"
+    assert result["description_placeholders"]["model_count"] == "2"
+    assert result["description_placeholders"]["models_warning"] == ""
+
+
+def test_models_step_description_uses_both_placeholders() -> None:
+    """strings.json carries both models-step placeholders, in both files (C8)."""
+    for filename in ("strings.json", "translations/en.json"):
+        strings = json.loads((COMPONENT_DIR / filename).read_text())
+        description = strings["config"]["step"]["models"]["description"]
+        assert "{models_warning}{model_count} models found" in description, filename
+
+
+async def test_reconfigure_flow_prefills_current_url(hass: HomeAssistant, setup_ha) -> None:
+    """Reconfigure resolves its entry via _get_reconfigure_entry and prefills (C7)."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"api_key": API_KEY, "base_url": "http://old-proxy:4000"},
+        unique_id="http://old-proxy:4000",
+    )
+    entry.add_to_hass(hass)
+
+    result = await entry.start_reconfigure_flow(hass)
+
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    schema_keys = {str(k) for k in result["data_schema"].schema}
+    assert "base_url" in schema_keys and "api_key" in schema_keys
+    # voluptuous 0.16 may wrap marker defaults in a factory — resolve it.
+    base_url_default = next(k.default for k in result["data_schema"].schema if str(k) == "base_url")
+    if callable(base_url_default):
+        base_url_default = base_url_default()
+    assert base_url_default == "http://old-proxy:4000"
 
 
 async def test_reauth_flow_updates_api_key(hass: HomeAssistant, setup_ha, mock_openai_ok) -> None:

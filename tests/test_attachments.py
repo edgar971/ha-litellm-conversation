@@ -115,3 +115,18 @@ def test_parts_attach_to_last_user_message_even_with_trailing_assistant() -> Non
         {"type": "text", "text": "question about image"},
         IMAGE_PART,
     ]
+
+
+def test_attachment_only_user_message_is_not_dropped() -> None:
+    """A user message with empty text and attachments still produces parts (C9).
+
+    The `elif content.content:` gate used to skip the turn entirely, so an
+    image sent without any caption never reached the model.
+    """
+    content = [
+        SimpleNamespace(role="system", content="sys prompt", attachments=None),
+        _user_content(""),
+    ]
+    messages = _convert_content_to_messages(content, [IMAGE_PART])
+    assert len(messages) == 2
+    assert messages[1] == {"role": "user", "content": [IMAGE_PART]}

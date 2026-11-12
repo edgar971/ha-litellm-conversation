@@ -22,6 +22,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.json import json_dumps
 
 from .const import (
+    CHAT_COMPLETION_TIMEOUT,
     CONF_CHAT_MODEL,
     CONF_GUARDRAILS,
     CONF_MAX_TOKENS,
@@ -269,17 +270,18 @@ def _convert_content_to_messages(
                     for tc in content.tool_calls
                 ]
             messages.append(msg)
-        elif content.content:
+        elif content.content or (last_user_attachment_parts and index == attach_index):
             if last_user_attachment_parts and index == attach_index:
-                messages.append(
-                    {
-                        "role": content.role,
-                        "content": [
-                            {"type": "text", "text": content.content},
-                            *last_user_attachment_parts,
-                        ],
-                    }
+                # Attachment-only user messages have empty text: emit an
+                # image-parts-only message instead of dropping the whole
+                # turn (a bare `elif content.content:` used to skip it and
+                # silently lose the image).
+                parts = (
+                    [{"type": "text", "text": content.content}, *last_user_attachment_parts]
+                    if content.content
+                    else list(last_user_attachment_parts)
                 )
+                messages.append({"role": content.role, "content": parts})
             else:
                 messages.append(
                     {
@@ -472,10 +474,17 @@ class LiteLLMBaseLLMEntity(Entity):
             )
             t0 = time.monotonic()
             try:
-                response = await self.client.chat.completions.create(
+                response = await self.client.with_options(
+                    timeout=CHAT_COMPLETION_TIMEOUT
+                ).chat.completions.create(
                     **create_params,
                     extra_body=extra_body,
                 )
+            except openai.APITimeoutError as err:
+                # A subclass of APIConnectionError, but a slow generation
+                # doesn't mean the proxy is unreachable, so the entity stays
+                # available (mirrors the decision path in ai_task.py).
+                _raise_for_api_error(err, model)
             except openai.APIConnectionError as err:
                 self._set_available(False)
                 _raise_for_api_error(err, model)

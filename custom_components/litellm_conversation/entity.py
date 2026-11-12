@@ -270,17 +270,18 @@ def _convert_content_to_messages(
                     for tc in content.tool_calls
                 ]
             messages.append(msg)
-        elif content.content:
+        elif content.content or (last_user_attachment_parts and index == attach_index):
             if last_user_attachment_parts and index == attach_index:
-                messages.append(
-                    {
-                        "role": content.role,
-                        "content": [
-                            {"type": "text", "text": content.content},
-                            *last_user_attachment_parts,
-                        ],
-                    }
+                # Attachment-only user messages have empty text: emit an
+                # image-parts-only message instead of dropping the whole
+                # turn (a bare `elif content.content:` used to skip it and
+                # silently lose the image).
+                parts = (
+                    [{"type": "text", "text": content.content}, *last_user_attachment_parts]
+                    if content.content
+                    else list(last_user_attachment_parts)
                 )
+                messages.append({"role": content.role, "content": parts})
             else:
                 messages.append(
                     {

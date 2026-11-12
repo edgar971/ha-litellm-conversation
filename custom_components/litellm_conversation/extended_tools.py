@@ -50,16 +50,61 @@ CALENDAR_MAX_EVENTS = 50
 
 # Domains the LLM may never call services on. call_service is a power tool,
 # but a prompt-injected model must not be able to stop/restart HA, run
-# arbitrary shell commands or Python, or wipe the recorder.
+# arbitrary shell commands or Python, or wipe the recorder. The second group
+# (physical security, automation execution, notification exfil) is blocked
+# even for entities exposed to Assist: exposure means "safe for the built-in
+# intent handlers", which validate actions far more narrowly than an
+# arbitrary service call with a model-chosen payload.
 BLOCKED_SERVICE_DOMAINS = frozenset(
     {
+        # system control / code execution
         "hassio",
         "homeassistant",
         "python_script",
         "recorder",
         "shell_command",
+        # security-critical / data-exfiltration: blocked even when exposed
+        "alarm_control_panel",
+        "automation",
+        "lock",
+        "notify",
+        "script",
     }
 )
+
+
+def _check_service_targets(hass: HomeAssistant, data: dict) -> dict[str, Any] | None:
+    """Gate call_service payloads through the Assist exposure filter.
+
+    Mirrors _guard_entity: every entity the model names must exist and be
+    exposed to Assist, so a prompt-injected model cannot act on entities the
+    user deliberately kept unexposed (locks, alarms, snooping cameras).
+    area_id/device_id targets are rejected outright — exposure is tracked
+    per entity and a broadened target set cannot be checked, so the model
+    must enumerate the entity_ids it wants.
+    """
+    from homeassistant.components.homeassistant.exposed_entities import (
+        async_should_expose,
+    )
+
+    if "area_id" in data or "device_id" in data:
+        return {
+            "error": "call_service requires an explicit entity_id target "
+            "(area_id/device_id targets cannot be checked against Assist exposure)"
+        }
+    entity_ids = data.get("entity_id")
+    if entity_ids is None:
+        return {"error": "call_service requires data.entity_id (one entity id or a list)"}
+    if isinstance(entity_ids, str):
+        entity_ids = [entity_ids]
+    if not isinstance(entity_ids, list):
+        return {"error": "data.entity_id must be an entity id or a list of entity ids"}
+    for entity_id in entity_ids:
+        if not isinstance(entity_id, str) or hass.states.get(entity_id) is None:
+            return {"error": f"Entity {entity_id} not found"}
+        if not async_should_expose(hass, "conversation", entity_id):
+            return {"error": f"Entity {entity_id} is not exposed to Assist"}
+    return None
 
 
 class CallServiceTool(llm.Tool):
@@ -70,10 +115,12 @@ class CallServiceTool(llm.Tool):
     description = (
         "Call a Home Assistant service. Use for actions not covered by other "
         "tools, e.g. 'light.turn_on' with entity_id and brightness. "
-        "domain is the service domain (light, switch, script...), service is "
+        "domain is the service domain (light, switch, ...), service is "
         "the service name (turn_on, toggle...), data is the service payload "
-        "including entity_id/area_id targets. System domains (homeassistant, "
-        "hassio, shell_command, python_script, recorder) are not allowed."
+        "and must include entity_id (one id or a list) of entities exposed "
+        "to Assist. System domains (homeassistant, hassio, shell_command, "
+        "python_script, recorder) and security-sensitive domains (lock, "
+        "alarm_control_panel, automation, script, notify) are not allowed."
     )
     parameters = vol.Schema(
         {
@@ -96,6 +143,9 @@ class CallServiceTool(llm.Tool):
 
         if not hass.services.has_service(domain, service):
             return {"error": f"Service {domain}.{service} does not exist"}
+
+        if error := _check_service_targets(hass, data):
+            return error
 
         LOGGER.debug("Extended tool call_service: %s.%s data=%s", domain, service, data)
         supports_response = (

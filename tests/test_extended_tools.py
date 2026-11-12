@@ -44,7 +44,11 @@ def _mock_entry() -> MagicMock:
     """Mock LiteLLM config entry (loaded, with a client and one subentry)."""
     entry = MagicMock()
     entry.runtime_data = MagicMock()
+    entry.runtime_data.with_options.return_value = entry.runtime_data
     return entry
+
+
+EXPOSE_PATH = "homeassistant.components.homeassistant.exposed_entities.async_should_expose"
 
 
 @pytest.fixture
@@ -121,20 +125,118 @@ async def test_api_instance_merges_assist_tools(hass: HomeAssistant) -> None:
 
 
 async def test_call_service_success(hass: HomeAssistant) -> None:
-    """A valid service call succeeds."""
+    """A valid service call on an exposed entity succeeds."""
+    hass.states.async_set("light.kitchen", "off")
     calls = []
     hass.services.async_register("light", "turn_on", lambda call: calls.append(call.data))
     tool = CallServiceTool()
-    result = await tool.async_call(
-        hass,
-        _tool_input(
-            "call_service",
-            {"domain": "light", "service": "turn_on", "data": {"brightness": 128}},
-        ),
-        _llm_context(),
-    )
+    with patch(EXPOSE_PATH, return_value=True):
+        result = await tool.async_call(
+            hass,
+            _tool_input(
+                "call_service",
+                {
+                    "domain": "light",
+                    "service": "turn_on",
+                    "data": {"entity_id": "light.kitchen", "brightness": 128},
+                },
+            ),
+            _llm_context(),
+        )
     assert result == {"success": True}
     assert calls and calls[0]["brightness"] == 128
+
+
+async def test_call_service_requires_entity_id(hass: HomeAssistant) -> None:
+    """A payload without an explicit entity_id target is refused (C2)."""
+    hass.services.async_register("light", "turn_on", lambda call: None)
+    tool = CallServiceTool()
+    result = await tool.async_call(
+        hass,
+        _tool_input("call_service", {"domain": "light", "service": "turn_on", "data": {}}),
+        _llm_context(),
+    )
+    assert "entity_id" in result["error"]
+
+
+async def test_call_service_rejects_area_and_device_targets(hass: HomeAssistant) -> None:
+    """area_id/device_id targets bypass per-entity exposure and are refused (C2)."""
+    hass.services.async_register("light", "turn_on", lambda call: None)
+    tool = CallServiceTool()
+    for key in ("area_id", "device_id"):
+        result = await tool.async_call(
+            hass,
+            _tool_input(
+                "call_service",
+                {"domain": "light", "service": "turn_on", "data": {key: "kitchen"}},
+            ),
+            _llm_context(),
+        )
+        assert "entity_id" in result["error"], key
+
+
+async def test_call_service_blocks_unexposed_entity(hass: HomeAssistant) -> None:
+    """Entities not exposed to Assist cannot be reached via call_service (C2)."""
+    hass.states.async_set("light.hidden", "off")
+    calls = []
+    hass.services.async_register("light", "turn_on", lambda call: calls.append(call.data))
+    tool = CallServiceTool()
+    with patch(EXPOSE_PATH, return_value=False):
+        result = await tool.async_call(
+            hass,
+            _tool_input(
+                "call_service",
+                {"domain": "light", "service": "turn_on", "data": {"entity_id": "light.hidden"}},
+            ),
+            _llm_context(),
+        )
+    assert "not exposed" in result["error"]
+    assert not calls
+
+
+async def test_call_service_blocks_missing_entity(hass: HomeAssistant) -> None:
+    """An entity_id that does not exist is refused before the service call."""
+    hass.services.async_register("light", "turn_on", lambda call: None)
+    tool = CallServiceTool()
+    with patch(EXPOSE_PATH, return_value=True):
+        result = await tool.async_call(
+            hass,
+            _tool_input(
+                "call_service",
+                {
+                    "domain": "light",
+                    "service": "turn_on",
+                    "data": {"entity_id": ["light.kitchen", "light.nope"]},
+                },
+            ),
+            _llm_context(),
+        )
+    assert "not found" in result["error"]
+
+
+async def test_call_service_list_entity_ids_all_must_be_exposed(hass: HomeAssistant) -> None:
+    """A list target is only allowed when every entity is exposed (C2)."""
+    hass.states.async_set("light.a", "off")
+    hass.states.async_set("light.b", "off")
+    calls = []
+    hass.services.async_register("light", "turn_on", lambda call: calls.append(call.data))
+    tool = CallServiceTool()
+    exposed = {"light.a": True, "light.b": False}
+    with patch(EXPOSE_PATH, side_effect=lambda h, a, e: exposed[e]):
+        result = await tool.async_call(
+            hass,
+            _tool_input(
+                "call_service",
+                {
+                    "domain": "light",
+                    "service": "turn_on",
+                    "data": {"entity_id": ["light.a", "light.b"]},
+                },
+            ),
+            _llm_context(),
+        )
+    assert "light.b is not exposed" in result["error"]
+    assert not calls
 
 
 async def test_call_service_unknown_service(hass: HomeAssistant) -> None:
@@ -155,13 +257,18 @@ async def test_call_service_ha_error(hass: HomeAssistant) -> None:
     def _boom(call):
         raise HomeAssistantError("kaboom")
 
-    hass.services.async_register("script", "fail", _boom)
+    hass.states.async_set("scene.movie", "scening")
+    hass.services.async_register("scene", "activate", _boom)
     tool = CallServiceTool()
-    result = await tool.async_call(
-        hass,
-        _tool_input("call_service", {"domain": "script", "service": "fail"}),
-        _llm_context(),
-    )
+    with patch(EXPOSE_PATH, return_value=True):
+        result = await tool.async_call(
+            hass,
+            _tool_input(
+                "call_service",
+                {"domain": "scene", "service": "activate", "data": {"entity_id": "scene.movie"}},
+            ),
+            _llm_context(),
+        )
     assert result == {"error": "kaboom"}
 
 
@@ -178,9 +285,36 @@ async def test_call_service_blocked_domains(hass: HomeAssistant) -> None:
         assert "not allowed" in result["error"], domain
 
 
+async def test_call_service_blocked_restricted_domains_even_exposed(hass: HomeAssistant) -> None:
+    """Security-sensitive domains are refused even for exposed entities (C2)."""
+    states = {
+        "lock": "lock.front",
+        "alarm_control_panel": "alarm_control_panel.house",
+        "automation": "automation.vacate",
+        "script": "script.exfil",
+        "notify": "notify.mobile",
+    }
+    for domain, entity_id in states.items():
+        hass.states.async_set(entity_id, "on")
+        hass.services.async_register(domain, "any_action", lambda call: None)
+        tool = CallServiceTool()
+        with patch(EXPOSE_PATH, return_value=True):
+            result = await tool.async_call(
+                hass,
+                _tool_input(
+                    "call_service",
+                    {"domain": domain, "service": "any_action", "data": {"entity_id": entity_id}},
+                ),
+                _llm_context(),
+            )
+        assert "not allowed" in result["error"], domain
+
+
 async def test_call_service_returns_response_data(hass: HomeAssistant) -> None:
     """Services that support responses return their data to the model."""
     from homeassistant.core import ServiceResponse, SupportsResponse
+
+    hass.states.async_set("weather.home", "sunny")
 
     def _handler(call) -> ServiceResponse:
         return {"forecast": "sunny"}
@@ -189,11 +323,19 @@ async def test_call_service_returns_response_data(hass: HomeAssistant) -> None:
         "weather", "get_forecasts", _handler, supports_response=SupportsResponse.ONLY
     )
     tool = CallServiceTool()
-    result = await tool.async_call(
-        hass,
-        _tool_input("call_service", {"domain": "weather", "service": "get_forecasts"}),
-        _llm_context(),
-    )
+    with patch(EXPOSE_PATH, return_value=True):
+        result = await tool.async_call(
+            hass,
+            _tool_input(
+                "call_service",
+                {
+                    "domain": "weather",
+                    "service": "get_forecasts",
+                    "data": {"entity_id": "weather.home"},
+                },
+            ),
+            _llm_context(),
+        )
     assert result["success"] is True
     assert result["response"] == {"forecast": "sunny"}
 
@@ -492,8 +634,6 @@ from custom_components.litellm_conversation.extended_tools import (  # noqa: E40
     GetCalendarEventsTool,
     _guard_entity,
 )
-
-EXPOSE_PATH = "homeassistant.components.homeassistant.exposed_entities.async_should_expose"
 
 
 def _loaded_entry(model: str = "test-model") -> MagicMock:
